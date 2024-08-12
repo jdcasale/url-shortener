@@ -2,7 +2,7 @@ extern crate core;
 
 mod errors;
 
-use actix_web::{post, web, App, HttpResponse, HttpServer, Responder, get, http};
+use actix_web::{post, web, App, HttpResponse, HttpServer, Responder, get};
 use quick_cache::sync::{Cache};
 use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -15,11 +15,6 @@ struct Hello {}
 
 struct AppStateWithCounter {
     long_url_lookup: Cache<u64, String>,
-}
-
-#[derive(Deserialize)]
-struct LookupUrlRequest<'a> {
-    short_url: &'a str,
 }
 
 #[derive(Serialize, Deserialize)]
