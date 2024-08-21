@@ -3891,9 +3891,11 @@ dependencies = [
  "log",
  "moka",
  "quick_cache",
+ "rocksdb-raft",
  "serde",
  "serde_json",
  "thiserror",
+ "tokio",
  "url",
 ]
 

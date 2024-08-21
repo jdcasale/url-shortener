@@ -1,6 +1,7 @@
 #![allow(clippy::uninlined_format_args)]
 #![deny(unused_qualifications)]
 
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::io::Cursor;
 use std::path::Path;
@@ -8,6 +9,7 @@ use std::sync::Arc;
 
 use openraft::Config;
 use tokio::net::TcpListener;
+use tokio::sync::RwLock;
 use tokio::task;
 
 use crate::app::App;
@@ -119,7 +121,7 @@ pub async fn start_example_raft_node<P>(
 
     // Create an application that will store all the instances created above, this will
     // be later used on the actix-web services.
-    let mut app: Server = tide::Server::with_state(app);
+    let mut app: Server = Server::with_state(app);
 
     management::rest(&mut app);
     api::rest(&mut app);
@@ -128,4 +130,28 @@ pub async fn start_example_raft_node<P>(
     tracing::info!("App Server listening on: {}", http_addr);
     _ = handle.await;
     Ok(())
+}
+
+
+pub async fn start_kvs<P>(
+    _node_id: NodeId,
+    dir: P,
+    _http_addr: String,
+    _rpc_addr: String,
+) -> Arc<RwLock<BTreeMap<String, String>>>
+    where
+        P: AsRef<Path>,
+{
+    // Create a configuration for the raft instance.
+    // let config = Config {
+    //     heartbeat_interval: 250,
+    //     election_timeout_min: 299,
+    //     ..Default::default()
+    // };
+
+    // let config = Arc::new(config.validate().unwrap());
+
+    let (_log_store, state_machine_store) = new_storage(&dir).await;
+    state_machine_store.data.kvs.clone()
+
 }

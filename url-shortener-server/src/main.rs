@@ -2,12 +2,15 @@ extern crate core;
 
 mod errors;
 
+use std::collections::BTreeMap;
 use actix_web::{post, web, App, HttpResponse, HttpServer, Responder, get};
 use quick_cache::sync::{Cache};
 use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Arc;
 use actix_web::http::header;
 use url::Url;
+use rocksdb_raft::{start_example_raft_node, start_kvs};
 use crate::errors::ShortenerErr;
 
 #[derive(Serialize, Deserialize)]
@@ -15,6 +18,7 @@ struct Hello {}
 
 struct AppStateWithCounter {
     long_url_lookup: Cache<u64, String>,
+    kvs: Arc<tokio::sync::RwLock<BTreeMap<String, String>>>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -60,6 +64,7 @@ async fn create_short_url(
     };
 
     let hash = calculate_hash(req.long_url);
+    shared_state.kvs.write().await.insert(hash.to_string(), url_str.clone());
     shared_state.long_url_lookup.insert(hash, url_str);
     let resp = CreateShortUrlResponse{short_url: format!("{:x}", hash)};
     HttpResponse::Ok()
@@ -79,15 +84,22 @@ async fn lookup_url<'a>(
         return HttpResponse::from_error(ShortenerErr::JsonError2(e));
     }
     let hash = to_hash.expect("already checked");
-    match shared_state.long_url_lookup.get(&hash) {
-        None => {HttpResponse::NotFound().finish()}
-        Some(long_url) => {
-            let resp = LookupUrlResponse{ location: long_url};
-            HttpResponse::Ok()
-                .content_type(APP_TYPE_JSON)
-                .json(resp)
-        }
+    if let Some(long_url) = shared_state.long_url_lookup.get(&hash) {
+        let resp = LookupUrlResponse{ location: long_url};
+        return HttpResponse::Ok()
+            .content_type(APP_TYPE_JSON)
+            .json(resp)
     }
+    let hash_str = hash.to_string();
+    let guard = shared_state.kvs.read().await;
+    let from_kvs = guard.get(&hash_str);
+    if let Some(long_url) = from_kvs {
+        let resp = LookupUrlResponse{ location: long_url.clone()};
+        return HttpResponse::Ok()
+            .content_type(APP_TYPE_JSON)
+            .json(resp)
+    }
+    HttpResponse::NotFound().finish()
 }
 
 #[get("/{hash}")]
@@ -122,10 +134,19 @@ async fn hello() -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-
+    let raft_rpc_addr = "0.0.0.0:21001".to_string();
+    let kvs: Arc<tokio::sync::RwLock<BTreeMap<String, String>>> = start_kvs(
+        1,
+        format!("{}.db", raft_rpc_addr),
+        raft_rpc_addr.clone(),
+        raft_rpc_addr.clone(),
+    )
+        .await;
     let cache = web::Data::new(AppStateWithCounter {
-        long_url_lookup: Cache::new(100_000_000)
+        long_url_lookup: Cache::new(100_000_000),
+        kvs
     });
+
 
     HttpServer::new(move || {
         // move counter into the closure
