@@ -51,7 +51,7 @@ pub struct NetworkConnection {
 impl NetworkConnection {
     async fn c<E: std::error::Error + DeserializeOwned>(
         &mut self,
-    ) -> Result<&Client<AckModeNone>, RPCError<TypeConfig, E>> {
+    ) -> Result<&Client<AckModeNone>, RPCError<NodeId, Node, E>> {
         if self.client.is_none() {
             self.client = Client::dial_websocket(&self.addr).await.ok();
         }
@@ -70,7 +70,7 @@ impl Display for ErrWrap {
 
 impl std::error::Error for ErrWrap {}
 
-fn to_error<E: std::error::Error + 'static + Clone>(e: toy_rpc::Error, target: NodeId) -> RPCError<TypeConfig, E> {
+fn to_error<E: std::error::Error + 'static + Clone>(e: toy_rpc::Error, target: NodeId) -> RPCError<NodeId, Node, E> {
     match e {
         toy_rpc::Error::IoError(e) => RPCError::Network(NetworkError::new(&e)),
         toy_rpc::Error::ParseError(e) => RPCError::Network(NetworkError::new(&ErrWrap(e))),
@@ -97,7 +97,7 @@ fn to_error<E: std::error::Error + 'static + Clone>(e: toy_rpc::Error, target: N
 //
 //    --> src/network/raft_network_impl.rs:99:91
 //     |
-// 99  |       ) -> Result<AppendEntriesResponse<NodeId>, RPCError<C, RaftError<C>>>
+// 99  |       ) -> Result<AppendEntriesResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId>>>
 // {
 //     |  ___________________________________________________________________________________________^
 // 100 | |         tracing::debug!(req = debug(&req), "append_entries");
@@ -117,7 +117,7 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         &mut self,
         req: AppendEntriesRequest<TypeConfig>,
         _option: RPCOption,
-    ) -> Result<AppendEntriesResponse<TypeConfig>, RPCError<TypeConfig, RaftError<TypeConfig>>> {
+    ) -> Result<AppendEntriesResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId>>> {
         tracing::debug!(req = debug(&req), "append_entries");
 
         let c = self.c().await?;
@@ -134,8 +134,7 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         &mut self,
         req: InstallSnapshotRequest<TypeConfig>,
         _option: RPCOption,
-    ) -> Result<InstallSnapshotResponse<TypeConfig>, RPCError<TypeConfig, RaftError<TypeConfig, InstallSnapshotError>>>
-    {
+    ) -> Result<InstallSnapshotResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId, InstallSnapshotError>>> {
         tracing::debug!(req = debug(&req), "install_snapshot");
         self.c().await?.raft().snapshot(req).await.map_err(|e| to_error(e, self.target))
     }
@@ -143,9 +142,9 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
     #[tracing::instrument(level = "debug", skip_all, err(Debug))]
     async fn vote(
         &mut self,
-        req: VoteRequest<TypeConfig>,
+        req: VoteRequest<NodeId>,
         _option: RPCOption,
-    ) -> Result<VoteResponse<TypeConfig>, RPCError<TypeConfig, RaftError<TypeConfig>>> {
+    ) -> Result<VoteResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId>>> {
         tracing::debug!(req = debug(&req), "vote");
         self.c().await?.raft().vote(req).await.map_err(|e| to_error(e, self.target))
     }

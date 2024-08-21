@@ -49,17 +49,19 @@ openraft::declare_raft_types!(
 pub mod typ {
     use openraft::error::Infallible;
 
+    use crate::Node;
+    use crate::NodeId;
     use crate::TypeConfig;
 
     pub type Entry = openraft::Entry<TypeConfig>;
 
-    pub type RaftError<E = Infallible> = openraft::error::RaftError<TypeConfig, E>;
-    pub type RPCError<E = Infallible> = openraft::error::RPCError<TypeConfig, RaftError<E>>;
+    pub type RaftError<E = Infallible> = openraft::error::RaftError<NodeId, E>;
+    pub type RPCError<E = Infallible> = openraft::error::RPCError<NodeId, Node, RaftError<E>>;
 
-    pub type ClientWriteError = openraft::error::ClientWriteError<TypeConfig>;
-    pub type CheckIsLeaderError = openraft::error::CheckIsLeaderError<TypeConfig>;
-    pub type ForwardToLeader = openraft::error::ForwardToLeader<TypeConfig>;
-    pub type InitializeError = openraft::error::InitializeError<TypeConfig>;
+    pub type ClientWriteError = openraft::error::ClientWriteError<NodeId, Node>;
+    pub type CheckIsLeaderError = openraft::error::CheckIsLeaderError<NodeId, Node>;
+    pub type ForwardToLeader = openraft::error::ForwardToLeader<NodeId, Node>;
+    pub type InitializeError = openraft::error::InitializeError<NodeId, Node>;
 
     pub type ClientWriteResponse = openraft::raft::ClientWriteResponse<TypeConfig>;
 }
@@ -117,7 +119,7 @@ pub async fn start_example_raft_node<P>(
 
     // Create an application that will store all the instances created above, this will
     // be later used on the actix-web services.
-    let mut app: Server = Server::with_state(app);
+    let mut app: Server = tide::Server::with_state(app);
 
     management::rest(&mut app);
     api::rest(&mut app);

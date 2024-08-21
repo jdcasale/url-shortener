@@ -1,5 +1,4 @@
 use clap::Parser;
-use raft_kv_rocksdb::start_example_raft_node;
 use tracing_subscriber::EnvFilter;
 use rocksdb_raft::start_example_raft_node;
 
