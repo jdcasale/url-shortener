@@ -117,7 +117,7 @@ async fn redirect(
         None => {HttpResponse::NotFound().finish()}
         Some(long_url) => {
             HttpResponse::MovedPermanently()
-                .append_header((header::LOCATION, long_url))//format!("https://{long_url}")))
+                .append_header((header::LOCATION, long_url))
                 .append_header((header::CACHE_CONTROL, "no-store, no-cache, must-revalidate, proxy-revalidate"))
                 .finish()
         }
@@ -167,6 +167,7 @@ fn calculate_hash(t: &str) -> u64 {
     s.finish()
 }
 
+// TODO(@jdcasale): obv use a real library for this
 fn validate_url(url: &str) -> Result<Url, ShortenerErr> {
     let abs_url = if !url.starts_with("http://") && !url.starts_with("https://"){
         format!("https://{url}")
