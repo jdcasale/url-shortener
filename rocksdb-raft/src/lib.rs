@@ -133,6 +133,47 @@ pub async fn start_example_raft_node<P>(
 }
 
 
+pub async fn start_raft_node<P>(
+    node_id: NodeId,
+    dir: P,
+    http_addr: String,
+    rpc_addr: String,
+) -> Arc<App>
+where
+    P: AsRef<Path>,
+{
+    // Create a configuration for the raft instance.
+    let config = Config {
+        heartbeat_interval: 250,
+        election_timeout_min: 299,
+        ..Default::default()
+    };
+
+    let config = Arc::new(config.validate().unwrap());
+
+    let (log_store, state_machine_store) = new_storage(&dir).await;
+
+    let kvs = state_machine_store.data.kvs.clone();
+
+    // Create the network layer that will connect and communicate the raft instances and
+    // will be used in conjunction with the store created above.
+    let network = Network {};
+
+    // Create a local raft instance.
+    let raft = openraft::Raft::new(node_id, config.clone(), network, log_store, state_machine_store).await.unwrap();
+
+    Arc::new(App {
+        id: node_id,
+        api_addr: http_addr.clone(),
+        rpc_addr: rpc_addr.clone(),
+        raft,
+        key_values: kvs,
+        config,
+    })
+}
+
+
+
 pub async fn start_kvs<P>(
     _node_id: NodeId,
     dir: P,

@@ -2903,6 +2903,7 @@ dependencies = [
 name = "rocksdb-raft"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "byteorder",
  "clap",
  "maplit",
@@ -3890,7 +3891,9 @@ dependencies = [
  "criterion",
  "log",
  "moka",
+ "openraft",
  "quick_cache",
+ "rocksdb",
  "rocksdb-raft",
  "serde",
  "serde_json",

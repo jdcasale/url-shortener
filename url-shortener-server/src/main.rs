@@ -1,6 +1,7 @@
 extern crate core;
 
 mod errors;
+mod rocksb_store;
 
 use std::collections::BTreeMap;
 use actix_web::{post, web, App, HttpResponse, HttpServer, Responder, get};
@@ -10,15 +11,19 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use actix_web::http::header;
 use url::Url;
-use rocksdb_raft::{start_example_raft_node, start_kvs};
+use web::Json;
+use rocksdb_raft::{start_kvs, start_raft_node, TypeConfig};
+use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest};
 use crate::errors::ShortenerErr;
+use crate::rocksb_store::{RocksApp, LongUrlEntry};
 
 #[derive(Serialize, Deserialize)]
 struct Hello {}
 
 struct AppStateWithCounter {
     long_url_lookup: Cache<u64, String>,
-    kvs: Arc<tokio::sync::RwLock<BTreeMap<String, String>>>
+    rocks_app: RocksApp,
+    raft: Arc<rocksdb_raft::app::App>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -64,8 +69,9 @@ async fn create_short_url(
     };
 
     let hash = calculate_hash(req.long_url);
-    shared_state.kvs.write().await.insert(hash.to_string(), url_str.clone());
-    shared_state.long_url_lookup.insert(hash, url_str);
+    let entry = LongUrlEntry::new(url_str.clone());
+    shared_state.rocks_app.append_entry(entry, hash);
+    shared_state.long_url_lookup.insert(hash, url_str.clone());
     let resp = CreateShortUrlResponse{short_url: format!("{:x}", hash)};
     HttpResponse::Ok()
         .content_type(APP_TYPE_JSON)
@@ -90,9 +96,7 @@ async fn lookup_url<'a>(
             .content_type(APP_TYPE_JSON)
             .json(resp)
     }
-    let hash_str = hash.to_string();
-    let guard = shared_state.kvs.read().await;
-    let from_kvs = guard.get(&hash_str);
+    let from_kvs = shared_state.rocks_app.get_entry(hash);
     if let Some(long_url) = from_kvs {
         let resp = LookupUrlResponse{ location: long_url.clone()};
         return HttpResponse::Ok()
@@ -132,6 +136,26 @@ async fn hello() -> impl Responder {
 }
 
 
+#[post("/raft/append_entries")]
+async fn append_entries(req: Json<AppendEntriesRequest<TypeConfig>>,
+                        shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
+    shared_state.raft.raft.append_entries(req.0)
+        .await
+        .map_err(|e| ShortenerErr::RaftError(e))
+        .map(|resp| HttpResponse::Ok().json(resp))
+
+}
+
+#[post("/raft/install_snapshot")]
+async fn install_snapshot(req: Json<InstallSnapshotRequest<TypeConfig>>,
+                        shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
+    shared_state.raft.raft.install_snapshot(req.0)
+        .await
+        .map_err(|e| ShortenerErr::RaftError2(e))
+        .map(|resp| HttpResponse::Ok().json(resp))
+}
+
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let raft_rpc_addr = "0.0.0.0:21001".to_string();
@@ -142,19 +166,32 @@ async fn main() -> std::io::Result<()> {
         raft_rpc_addr.clone(),
     )
         .await;
+
+    let raft_app =  start_raft_node(
+        1,
+        format!("{}.db", raft_rpc_addr),
+        raft_rpc_addr.clone(),
+        raft_rpc_addr.clone())
+        .await;
+
+    let rocks_app = RocksApp::new("rocks_store.db");
+
     let cache = web::Data::new(AppStateWithCounter {
         long_url_lookup: Cache::new(100_000_000),
-        kvs
+        rocks_app,
+        raft: raft_app
     });
 
 
     HttpServer::new(move || {
         // move counter into the closure
         App::new()
-            .app_data(cache.clone()) // <- register the created data
+            .app_data(cache.clone())
             .service(create_short_url)
             .service(lookup_url)
             .service(redirect)
+            .service(append_entries)
+            .service(install_snapshot)
     })
     .bind(("0.0.0.0", 8080))?
     .run()
