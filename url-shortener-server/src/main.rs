@@ -69,8 +69,8 @@ async fn create_short_url(
     };
 
     let hash = calculate_hash(req.long_url);
-    let entry = LongUrlEntry::new(url_str.clone());
-    shared_state.rocks_app.append_entry(entry, hash);
+    let entry = LongUrlEntry::new(hash, url_str.clone());
+    shared_state.rocks_app.append_entry(entry);
     shared_state.long_url_lookup.insert(hash, url_str.clone());
     let resp = CreateShortUrlResponse{short_url: format!("{:x}", hash)};
     HttpResponse::Ok()

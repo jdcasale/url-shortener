@@ -4,11 +4,12 @@ use rocksdb::{DB, Options};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LongUrlEntry {
-    data: String,
+    hash: String,
+    url: String,
 }
 impl LongUrlEntry {
-    pub fn new(url: String) -> Self {
-        Self { data: url }
+    pub fn new(hash: u64, url: String) -> Self {
+        Self { hash: hash.to_string(), url }
     }
 }
 
@@ -24,8 +25,8 @@ impl RocksApp {
     }
 
     // Simulate appending an entry to the log and persisting it
-    pub fn append_entry(&self, entry: LongUrlEntry, index: u64) {
-        self.db.put(index.to_string(), entry.data).expect("Failed to write to RocksDB");
+    pub fn append_entry(&self, entry: LongUrlEntry) {
+        self.db.put(entry.hash, entry.url).expect("Failed to write to RocksDB");
     }
 
     // Retrieve entry for verification
