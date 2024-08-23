@@ -16,6 +16,7 @@ rocksdb-raft  = {path = "../rocksdb-raft"}
 tokio = "1.39.2"
 openraft = { version = "0.9.13", features = ["serde", "storage-v2"] }
 rocksdb = "0.22.0"
+async-trait = "0.1.81"
 #nohash-hasher = "0.2.0"
 
 [dev-dependencies]

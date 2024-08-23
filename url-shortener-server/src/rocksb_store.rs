@@ -1,4 +1,8 @@
+use std::io::Cursor;
 use std::sync::Arc;
+use openraft::{BasicNode, Entry, LogId, Membership, Node, RaftLogId, RaftTypeConfig, TokioRuntime};
+use openraft::entry::{FromAppData, RaftEntry, RaftPayload};
+use openraft::impls::OneshotResponder;
 use serde::{Deserialize, Serialize};
 use rocksdb::{DB, Options};
 
@@ -6,11 +10,52 @@ use rocksdb::{DB, Options};
 pub struct LongUrlEntry {
     hash: String,
     url: String,
+    term: u64,
 }
 impl LongUrlEntry {
-    pub fn new(hash: u64, url: String) -> Self {
-        Self { hash: hash.to_string(), url }
+    pub fn new(hash: u64, url: String, term: u64) -> Self {
+        Self { hash: hash.to_string(), url, term }
     }
+}
+
+impl FromAppData<LongUrlEntry> for LongUrlEntry {
+    fn from_app_data(t: LongUrlEntry) -> Self {
+        t
+    }
+}
+
+impl RaftPayload<u64, BasicNode> for LongUrlEntry {
+    fn is_blank(&self) -> bool {
+        todo!()
+    }
+
+    fn get_membership(&self) -> Option<&Membership<u64, BasicNode>> {
+        todo!()
+    }
+}
+
+impl RaftLogId<u64> for LongUrlEntry {
+    fn get_log_id(&self) -> &LogId<u64> {
+        todo!()
+    }
+
+    fn set_log_id(&mut self, log_id: &LogId<u64>) {
+        todo!()
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, Default, Ord, PartialOrd)]
+pub struct TypeConfig;
+
+impl RaftTypeConfig for TypeConfig {
+    type D = LongUrlEntry;
+    type R = LongUrlEntry;
+    type NodeId = u64;
+    type Node = BasicNode;
+    type Entry = Entry<Self>;
+    type SnapshotData = Cursor<Vec<u8>>;
+    type AsyncRuntime = TokioRuntime;
+    type Responder = OneshotResponder<Self>;
 }
 
 // Simple Raft-like storage

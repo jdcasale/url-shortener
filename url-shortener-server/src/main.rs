@@ -2,6 +2,7 @@ extern crate core;
 
 mod errors;
 mod rocksb_store;
+mod no_op_network_impl;
 
 use std::collections::BTreeMap;
 use actix_web::{post, web, App, HttpResponse, HttpServer, Responder, get};
@@ -69,7 +70,7 @@ async fn create_short_url(
     };
 
     let hash = calculate_hash(req.long_url);
-    let entry = LongUrlEntry::new(hash, url_str.clone());
+    let entry = LongUrlEntry::new(hash, url_str.clone(), 1u64);
     shared_state.rocks_app.append_entry(entry);
     shared_state.long_url_lookup.insert(hash, url_str.clone());
     let resp = CreateShortUrlResponse{short_url: format!("{:x}", hash)};
