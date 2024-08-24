@@ -1,10 +1,18 @@
+use std::fmt::Debug;
+use std::future::Future;
 use std::io::Cursor;
+use std::ops::RangeBounds;
 use std::sync::Arc;
-use openraft::{BasicNode, Entry, LogId, Membership, Node, RaftLogId, RaftTypeConfig, TokioRuntime};
+use log::kv::Error;
+use openraft::{BasicNode, Entry, LogId, LogState, Membership, Node, OptionalSend, RaftLogId, RaftLogReader, RaftTypeConfig, StorageError, TokioRuntime, Vote};
 use openraft::entry::{FromAppData, RaftEntry, RaftPayload};
 use openraft::impls::OneshotResponder;
+use openraft::storage::{LogFlushed, RaftLogStorage};
 use serde::{Deserialize, Serialize};
 use rocksdb::{DB, Options};
+use rocksdb_raft::store::StateMachineStore;
+use crate::no_op_network_impl::{EntryBruv, NodeId};
+use crate::rocksb_store;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LongUrlEntry {
@@ -18,31 +26,7 @@ impl LongUrlEntry {
     }
 }
 
-impl FromAppData<LongUrlEntry> for LongUrlEntry {
-    fn from_app_data(t: LongUrlEntry) -> Self {
-        t
-    }
-}
 
-impl RaftPayload<u64, BasicNode> for LongUrlEntry {
-    fn is_blank(&self) -> bool {
-        todo!()
-    }
-
-    fn get_membership(&self) -> Option<&Membership<u64, BasicNode>> {
-        todo!()
-    }
-}
-
-impl RaftLogId<u64> for LongUrlEntry {
-    fn get_log_id(&self) -> &LogId<u64> {
-        todo!()
-    }
-
-    fn set_log_id(&mut self, log_id: &LogId<u64>) {
-        todo!()
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, Default, Ord, PartialOrd)]
 pub struct TypeConfig;
@@ -63,10 +47,47 @@ pub struct RocksApp {
     db: Arc<DB>,
 }
 
+impl RaftLogStorage<TypeConfig> for RocksApp {
+    type LogReader = Self;
+
+    async fn get_log_state(&mut self) -> Result<LogState<TypeConfig>, StorageError<NodeId>> {
+        todo!()
+    }
+
+    async fn get_log_reader(&mut self) -> Self::LogReader {
+        todo!()
+    }
+
+    async fn save_vote(&mut self, vote: &Vote<NodeId>) -> Result<(), StorageError<NodeId>> {
+        todo!()
+    }
+
+    async fn read_vote(&mut self) -> Result<Option<Vote<NodeId>>, StorageError<NodeId>> {
+        todo!()
+    }
+
+    async fn append<I>(&mut self, entries: I, callback: LogFlushed<TypeConfig>) -> Result<(), StorageError<NodeId>>
+    where
+        I: IntoIterator<Item=<TypeConfig as RaftTypeConfig>::Entry> + OptionalSend,
+        I::IntoIter: OptionalSend
+    {
+        todo!()
+    }
+
+    async fn truncate(&mut self, log_id: LogId<NodeId>) -> Result<(), StorageError<NodeId>> {
+        todo!()
+    }
+
+    async fn purge(&mut self, log_id: LogId<NodeId>) -> Result<(), StorageError<NodeId>>{
+        todo!()
+    }
+}
+
 impl RocksApp {
-    pub fn new(db_path: &str) -> Self {
+    pub fn new(db_path: &str) -> (Self, impl Future<Output =Result<StateMachineStore, openraft::StorageError<u64>>>) {
         let db = Arc::new(DB::open_default(db_path).unwrap());
-        Self { db }
+        let db2 = db.clone();
+        (Self { db }, StateMachineStore::new(db2))
     }
 
     // Simulate appending an entry to the log and persisting it
@@ -79,5 +100,11 @@ impl RocksApp {
         self.db.get(index.to_string())
             .unwrap()
             .map(|bytes| String::from_utf8(bytes).expect(""))
+    }
+}
+
+impl RaftLogReader<TypeConfig> for RocksApp {
+    async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + OptionalSend>(&mut self, range: RB) -> Result<Vec<EntryBruv>, StorageError<NodeId>>{
+        todo!()
     }
 }

@@ -142,7 +142,7 @@ async fn append_entries(req: Json<AppendEntriesRequest<TypeConfig>>,
                         shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
     shared_state.raft.raft.append_entries(req.0)
         .await
-        .map_err(|e| ShortenerErr::RaftError(e))
+        .map_err(ShortenerErr::RaftError)
         .map(|resp| HttpResponse::Ok().json(resp))
 
 }
@@ -152,7 +152,7 @@ async fn install_snapshot(req: Json<InstallSnapshotRequest<TypeConfig>>,
                         shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
     shared_state.raft.raft.install_snapshot(req.0)
         .await
-        .map_err(|e| ShortenerErr::RaftError2(e))
+        .map_err(ShortenerErr::RaftError2)
         .map(|resp| HttpResponse::Ok().json(resp))
 }
 
@@ -175,7 +175,7 @@ async fn main() -> std::io::Result<()> {
         raft_rpc_addr.clone())
         .await;
 
-    let rocks_app = RocksApp::new("rocks_store.db");
+    let (rocks_app, _) = RocksApp::new("rocks_store.db");
 
     let cache = web::Data::new(AppStateWithCounter {
         long_url_lookup: Cache::new(100_000_000),
