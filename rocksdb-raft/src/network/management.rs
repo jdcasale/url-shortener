@@ -12,7 +12,6 @@ use tide::StatusCode;
 use crate::app::App;
 use crate::network::no_op_network_impl::Node;
 use crate::NodeId;
-use crate::rocksb_store::TypeConfig;
 use crate::Server;
 
 // --- Cluster management

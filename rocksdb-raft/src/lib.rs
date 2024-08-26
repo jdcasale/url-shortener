@@ -2,16 +2,12 @@
 #![deny(unused_qualifications)]
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Display;
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 use maplit::btreeset;
-use openraft::{BasicNode, CommittedLeaderId, Config, LeaderId, LogId, RaftMetrics, RaftNetwork, Vote};
-use openraft::network::RPCOption;
+use openraft::{Config, RaftNetwork, Vote};
 use openraft::raft::VoteRequest;
-use serde::de::Unexpected::Option;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task;
@@ -24,7 +20,6 @@ use network::no_op_network_impl::NodeId;
 use crate::rocksb_store::TypeConfig;
 use crate::store::new_storage;
 use crate::store::Request;
-use crate::store::Response;
 
 pub mod app;
 pub mod client;

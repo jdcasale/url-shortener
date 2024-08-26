@@ -215,7 +215,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
         for ent in entries {
             self.data.last_applied_log_id = Some(ent.log_id);
 
-            let mut resp_value = None;
+            let resp_value = None;
 
             match ent.payload {
                 EntryPayload::Blank => {}
