@@ -16,6 +16,8 @@ use crate::app::App;
 use crate::network::api;
 use crate::network::management;
 use crate::network::Network;
+use network::no_op_network_impl::NodeId;
+use crate::rocksb_store::TypeConfig;
 use crate::store::new_storage;
 use crate::store::Request;
 use crate::store::Response;
@@ -24,36 +26,35 @@ pub mod app;
 pub mod client;
 pub mod network;
 pub mod store;
+pub mod rocksb_store;
 
-pub type NodeId = u64;
+// pub type NodeId = u64;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, Default)]
-pub struct Node {
-    pub rpc_addr: String,
-    pub api_addr: String,
-}
-
-impl Display for Node {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Node {{ rpc_addr: {}, api_addr: {} }}", self.rpc_addr, self.api_addr)
-    }
-}
+// #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, Default)]
+// pub struct Node {
+//     pub rpc_addr: String,
+//     pub api_addr: String,
+// }
+//
+// impl Display for Node {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         write!(f, "Node {{ rpc_addr: {}, api_addr: {} }}", self.rpc_addr, self.api_addr)
+//     }
+// }
 
 pub type SnapshotData = Cursor<Vec<u8>>;
 
-openraft::declare_raft_types!(
-    pub TypeConfig:
-        D = Request,
-        R = Response,
-        Node = Node,
-);
+// openraft::declare_raft_types!(
+//     pub TypeConfig:
+//         D = Request,
+//         R = Response,
+//         Node = Node,
+// );
 
 pub mod typ {
     use openraft::error::Infallible;
-
-    use crate::Node;
-    use crate::NodeId;
-    use crate::TypeConfig;
+    use crate::network::no_op_network_impl::{Node, NodeId};
+    use crate::rocksb_store::TypeConfig;
 
     pub type Entry = openraft::Entry<TypeConfig>;
 

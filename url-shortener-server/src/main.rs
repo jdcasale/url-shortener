@@ -1,22 +1,21 @@
 extern crate core;
 
 mod errors;
-mod rocksb_store;
-mod no_op_network_impl;
 
-use std::collections::BTreeMap;
 use actix_web::{post, web, App, HttpResponse, HttpServer, Responder, get};
 use quick_cache::sync::{Cache};
 use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use actix_web::http::header;
+use openraft::EntryPayload;
 use url::Url;
 use web::Json;
-use rocksdb_raft::{start_kvs, start_raft_node, TypeConfig};
+use rocksdb_raft::start_raft_node;
 use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest};
+use rocksdb_raft::rocksb_store::{LongUrlEntry, RocksApp};
 use crate::errors::ShortenerErr;
-use crate::rocksb_store::{RocksApp, LongUrlEntry};
+use rocksdb_raft::rocksb_store::TypeConfig;
 
 #[derive(Serialize, Deserialize)]
 struct Hello {}
@@ -71,6 +70,18 @@ async fn create_short_url(
 
     let hash = calculate_hash(req.long_url);
     let entry = LongUrlEntry::new(hash, url_str.clone(), 1u64);
+    let raft_entry = openraft::Entry {
+        log_id: Default::default(),
+        payload: EntryPayload::Normal(entry.clone()),
+    };
+    let append_req = AppendEntriesRequest {
+        vote: Default::default(),
+        prev_log_id: None,
+        entries: vec![raft_entry],
+        leader_commit: None,
+    };
+    let resp = shared_state.raft.raft.append_entries(append_req).await;
+    let _ = resp.unwrap();
     shared_state.rocks_app.append_entry(entry);
     shared_state.long_url_lookup.insert(hash, url_str.clone());
     let resp = CreateShortUrlResponse{short_url: format!("{:x}", hash)};
@@ -91,13 +102,16 @@ async fn lookup_url<'a>(
         return HttpResponse::from_error(ShortenerErr::JsonError2(e));
     }
     let hash = to_hash.expect("already checked");
-    if let Some(long_url) = shared_state.long_url_lookup.get(&hash) {
-        let resp = LookupUrlResponse{ location: long_url};
-        return HttpResponse::Ok()
-            .content_type(APP_TYPE_JSON)
-            .json(resp)
-    }
-    let from_kvs = shared_state.rocks_app.get_entry(hash);
+    // if let Some(long_url) = shared_state.long_url_lookup.get(&hash) {
+    //     let resp = LookupUrlResponse{ location: long_url};
+    //     return HttpResponse::Ok()
+    //         .content_type(APP_TYPE_JSON)
+    //         .json(resp)
+    // }
+    let hash_str = hash.to_string();
+    let guard = shared_state.raft.key_values.read().await;
+    let from_kvs = guard.get(&hash_str);
+    // let from_kvs = shared_state.rocks_app.get_entry(hash);
     if let Some(long_url) = from_kvs {
         let resp = LookupUrlResponse{ location: long_url.clone()};
         return HttpResponse::Ok()
@@ -160,13 +174,6 @@ async fn install_snapshot(req: Json<InstallSnapshotRequest<TypeConfig>>,
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let raft_rpc_addr = "0.0.0.0:21001".to_string();
-    let kvs: Arc<tokio::sync::RwLock<BTreeMap<String, String>>> = start_kvs(
-        1,
-        format!("{}.db", raft_rpc_addr),
-        raft_rpc_addr.clone(),
-        raft_rpc_addr.clone(),
-    )
-        .await;
 
     let raft_app =  start_raft_node(
         1,
@@ -174,9 +181,8 @@ async fn main() -> std::io::Result<()> {
         raft_rpc_addr.clone(),
         raft_rpc_addr.clone())
         .await;
-
-    let (rocks_app, _) = RocksApp::new("rocks_store.db");
-
+    let (rocks_app, state_manchine_store) = RocksApp::new("rocks_store.db");
+    // state_manchine_store.await.unwrap().
     let cache = web::Data::new(AppStateWithCounter {
         long_url_lookup: Cache::new(100_000_000),
         rocks_app,

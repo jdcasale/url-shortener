@@ -3,22 +3,19 @@ use std::future::Future;
 use std::io::Cursor;
 use std::ops::RangeBounds;
 use std::sync::Arc;
-use log::kv::Error;
 use openraft::{BasicNode, Entry, LogId, LogState, Membership, Node, OptionalSend, RaftLogId, RaftLogReader, RaftTypeConfig, StorageError, TokioRuntime, Vote};
-use openraft::entry::{FromAppData, RaftEntry, RaftPayload};
 use openraft::impls::OneshotResponder;
 use openraft::storage::{LogFlushed, RaftLogStorage};
 use serde::{Deserialize, Serialize};
 use rocksdb::{DB, Options};
-use rocksdb_raft::store::StateMachineStore;
-use crate::no_op_network_impl::{EntryBruv, NodeId};
-use crate::rocksb_store;
+use crate::network::no_op_network_impl::{EntryBruv, NodeId};
+use crate::store::{Response, StateMachineStore};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LongUrlEntry {
-    hash: String,
-    url: String,
-    term: u64,
+    pub hash: String,
+    pub url: String,
+    pub term: u64,
 }
 impl LongUrlEntry {
     pub fn new(hash: u64, url: String, term: u64) -> Self {
@@ -33,7 +30,7 @@ pub struct TypeConfig;
 
 impl RaftTypeConfig for TypeConfig {
     type D = LongUrlEntry;
-    type R = LongUrlEntry;
+    type R = Response;
     type NodeId = u64;
     type Node = BasicNode;
     type Entry = Entry<Self>;
@@ -71,7 +68,7 @@ impl RaftLogStorage<TypeConfig> for RocksApp {
         I: IntoIterator<Item=<TypeConfig as RaftTypeConfig>::Entry> + OptionalSend,
         I::IntoIter: OptionalSend
     {
-        todo!()
+        panic!()
     }
 
     async fn truncate(&mut self, log_id: LogId<NodeId>) -> Result<(), StorageError<NodeId>> {
@@ -84,7 +81,7 @@ impl RaftLogStorage<TypeConfig> for RocksApp {
 }
 
 impl RocksApp {
-    pub fn new(db_path: &str) -> (Self, impl Future<Output =Result<StateMachineStore, openraft::StorageError<u64>>>) {
+    pub fn new(db_path: &str) -> (Self, impl Future<Output =Result<StateMachineStore, StorageError<u64>>>) {
         let db = Arc::new(DB::open_default(db_path).unwrap());
         let db2 = db.clone();
         (Self { db }, StateMachineStore::new(db2))

@@ -19,11 +19,10 @@ use openraft::AnyError;
 use serde::de::DeserializeOwned;
 use toy_rpc::pubsub::AckModeNone;
 use toy_rpc::Client;
-
+use crate::network::no_op_network_impl::Node;
 use super::raft::RaftClientStub;
-use crate::Node;
 use crate::NodeId;
-use crate::TypeConfig;
+use crate::rocksb_store::TypeConfig;
 
 pub struct Network {}
 
@@ -34,7 +33,7 @@ impl RaftNetworkFactory<TypeConfig> for Network {
 
     #[tracing::instrument(level = "debug", skip_all)]
     async fn new_client(&mut self, target: NodeId, node: &Node) -> Self::Network {
-        let addr = format!("ws://{}", node.rpc_addr);
+        let addr = format!("ws://{}", node.addr);
 
         let client = Client::dial_websocket(&addr).await.ok();
         tracing::debug!("new_client: is_none: {}", client.is_none());

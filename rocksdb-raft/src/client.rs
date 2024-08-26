@@ -12,9 +12,8 @@ use reqwest::Client;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
-
+use crate::network::no_op_network_impl::Node;
 use crate::typ;
-use crate::Node;
 use crate::NodeId;
 use crate::Request;
 
@@ -194,7 +193,7 @@ impl ExampleClient {
                     // Update target to the new leader.
                     {
                         let mut t = self.leader.lock().unwrap();
-                        let api_addr = leader_node.api_addr.clone();
+                        let api_addr = leader_node.addr.clone();
                         *t = (*leader_id, api_addr);
                     }
 

@@ -35,12 +35,11 @@ use rocksdb::DB;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::RwLock;
-
+use crate::network::no_op_network_impl::Node;
 use crate::typ;
-use crate::Node;
 use crate::NodeId;
+use crate::rocksb_store::{LongUrlEntry, TypeConfig};
 use crate::SnapshotData;
-use crate::TypeConfig;
 
 /**
  * Here you will set the types of request that will interact with the raft nodes.
@@ -221,11 +220,10 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
             match ent.payload {
                 EntryPayload::Blank => {}
                 EntryPayload::Normal(req) => match req {
-                    Request::Set { key, value } => {
-                        resp_value = Some(value.clone());
 
+                    LongUrlEntry { hash, url, term } => {
                         let mut st = self.data.kvs.write().await;
-                        st.insert(key, value);
+                        st.insert(hash, url);
                     }
                 },
                 EntryPayload::Membership(mem) => {

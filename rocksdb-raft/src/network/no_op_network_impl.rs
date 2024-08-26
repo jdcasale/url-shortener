@@ -59,7 +59,7 @@ mod test {
     use std::sync::Arc;
     use openraft::{Config, Raft};
     use openraft::raft::AppendEntriesRequest;
-    use crate::no_op_network_impl::NoopRaftNetwork;
+    use crate::network::no_op_network_impl::NoopRaftNetwork;
     use crate::rocksb_store::{LongUrlEntry, RocksApp, TypeConfig};
 
     #[tokio::test]
