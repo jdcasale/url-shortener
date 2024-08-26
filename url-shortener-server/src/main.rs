@@ -13,7 +13,7 @@ use url::Url;
 use web::Json;
 use rocksdb_raft::start_raft_node;
 use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest};
-use rocksdb_raft::rocksb_store::{LongUrlEntry, RocksApp};
+use rocksdb_raft::rocksb_store::{LongUrlEntry};
 use crate::errors::ShortenerErr;
 use rocksdb_raft::rocksb_store::TypeConfig;
 
@@ -22,7 +22,6 @@ struct Hello {}
 
 struct AppStateWithCounter {
     long_url_lookup: Cache<u64, String>,
-    rocks_app: RocksApp,
     raft: Arc<rocksdb_raft::app::App>
 }
 
@@ -70,19 +69,25 @@ async fn create_short_url(
 
     let hash = calculate_hash(req.long_url);
     let entry = LongUrlEntry::new(hash, url_str.clone(), 1u64);
-    let raft_entry = openraft::Entry {
-        log_id: Default::default(),
-        payload: EntryPayload::Normal(entry.clone()),
-    };
-    let append_req = AppendEntriesRequest {
-        vote: Default::default(),
-        prev_log_id: None,
-        entries: vec![raft_entry],
-        leader_commit: None,
-    };
-    let resp = shared_state.raft.raft.append_entries(append_req).await;
+    // let raft_entry = openraft::Entry {
+    //     log_id: Default::default(),
+    //     payload: EntryPayload::Normal(entry.clone()),
+    // };
+    // let append_req = AppendEntriesRequest {
+    //     vote: Default::default(),
+    //     prev_log_id: None,
+    //     entries: vec![raft_entry],
+    //     leader_commit: None,
+    // };
+
+
+    let resp = shared_state
+        .raft
+        .raft
+        .client_write(entry)
+        .await;
     let _ = resp.unwrap();
-    shared_state.rocks_app.append_entry(entry);
+    // shared_state.rocks_app.append_entry(entry);
     shared_state.long_url_lookup.insert(hash, url_str.clone());
     let resp = CreateShortUrlResponse{short_url: format!("{:x}", hash)};
     HttpResponse::Ok()
@@ -176,16 +181,13 @@ async fn main() -> std::io::Result<()> {
     let raft_rpc_addr = "0.0.0.0:21001".to_string();
 
     let raft_app =  start_raft_node(
-        1,
+        0,
         format!("{}.db", raft_rpc_addr),
         raft_rpc_addr.clone(),
         raft_rpc_addr.clone())
         .await;
-    let (rocks_app, state_manchine_store) = RocksApp::new("rocks_store.db");
-    // state_manchine_store.await.unwrap().
     let cache = web::Data::new(AppStateWithCounter {
         long_url_lookup: Cache::new(100_000_000),
-        rocks_app,
         raft: raft_app
     });
 

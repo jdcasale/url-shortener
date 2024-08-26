@@ -1,13 +1,17 @@
 #![allow(clippy::uninlined_format_args)]
 #![deny(unused_qualifications)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Display;
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
-
-use openraft::Config;
+use std::time::Duration;
+use maplit::btreeset;
+use openraft::{BasicNode, CommittedLeaderId, Config, LeaderId, LogId, RaftMetrics, RaftNetwork, Vote};
+use openraft::network::RPCOption;
+use openraft::raft::VoteRequest;
+use serde::de::Unexpected::Option;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task;
@@ -15,7 +19,7 @@ use tokio::task;
 use crate::app::App;
 use crate::network::api;
 use crate::network::management;
-use crate::network::Network;
+// use crate::network::Network;
 use network::no_op_network_impl::NodeId;
 use crate::rocksb_store::TypeConfig;
 use crate::store::new_storage;
@@ -97,11 +101,13 @@ pub async fn start_example_raft_node<P>(
 
     // Create the network layer that will connect and communicate the raft instances and
     // will be used in conjunction with the store created above.
-    let network = Network {};
+    let network = Arc::new(network::no_op_network_impl::NoopRaftNetwork {});
+
 
     // Create a local raft instance.
     let raft = openraft::Raft::new(node_id, config.clone(), network, log_store, state_machine_store).await.unwrap();
-
+    let resp = raft.vote(VoteRequest::new(Vote::new(1, 1), None)).await.unwrap();
+    println!("{resp:?}");
     let app = Arc::new(App {
         id: node_id,
         api_addr: http_addr.clone(),
@@ -158,10 +164,28 @@ where
 
     // Create the network layer that will connect and communicate the raft instances and
     // will be used in conjunction with the store created above.
-    let network = Network {};
-
+    let network = Arc::new(network::no_op_network_impl::NoopRaftNetwork {});
     // Create a local raft instance.
     let raft = openraft::Raft::new(node_id, config.clone(), network, log_store, state_machine_store).await.unwrap();
+    // raft.change_membership()
+    // let resp = raft.vote(
+    //     VoteRequest::new(Vote::new(0, 0),
+    //                      Some(LogId::new(CommittedLeaderId::new(0, node_id), 0))))
+    //     .await
+    //     .unwrap();
+
+    // Apply the vote to the Raft node
+    let mut initial_members = BTreeSet::new();
+    initial_members.insert(node_id);
+    let bruhh = raft.initialize(initial_members).await;
+    let metrics = raft.metrics().borrow().clone();
+    println!("{metrics:?}");
+    let response1 = raft.change_membership(BTreeSet::from([node_id]), false).await.unwrap();
+    let response = raft.change_membership(
+        btreeset! {node_id}, true)
+        .await
+        .unwrap();
+    // println!("{resp:?}");
 
     Arc::new(App {
         id: node_id,
