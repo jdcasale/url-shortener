@@ -221,7 +221,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
                 EntryPayload::Blank => {}
                 EntryPayload::Normal(req) => match req {
 
-                    LongUrlEntry { hash, url, term } => {
+                    LongUrlEntry { hash, url, .. } => {
                         st.insert(hash, url);
                     }
                 },

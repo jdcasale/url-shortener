@@ -1,10 +1,8 @@
 use std::fmt::Debug;
 use std::io::Cursor;
-use std::sync::Arc;
 use openraft::{BasicNode, Entry, RaftTypeConfig, TokioRuntime};
 use openraft::impls::OneshotResponder;
 use serde::{Deserialize, Serialize};
-use rocksdb::DB;
 use crate::store::Response;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -34,9 +32,3 @@ impl RaftTypeConfig for TypeConfig {
     type AsyncRuntime = TokioRuntime;
     type Responder = OneshotResponder<Self>;
 }
-
-// Simple Raft-like storage
-pub struct RocksApp {
-    db: Arc<DB>,
-}
-

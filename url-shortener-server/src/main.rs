@@ -163,6 +163,15 @@ async fn install_snapshot(req: Json<InstallSnapshotRequest<TypeConfig>>,
         .map(|resp| HttpResponse::Ok().json(resp))
 }
 
+// #[post("/raft/install_snapshot")]
+// async fn install_snapshot(req: Json<InstallSnapshotRequest<TypeConfig>>,
+//                           shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
+//     shared_state.raft.raft.add.install_snapshot(req.0)
+//         .await
+//         .map_err(ShortenerErr::RaftError2)
+//         .map(|resp| HttpResponse::Ok().json(resp))
+// }
+
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {

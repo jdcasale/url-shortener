@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
-use openraft::{Config, RaftNetwork, Vote};
+use openraft::{Config, Vote};
 use openraft::raft::VoteRequest;
 use tokio::net::TcpListener;
 use tokio::task;
@@ -142,10 +142,17 @@ where
     // Apply the vote to the Raft node
     let mut initial_members = BTreeSet::new();
     initial_members.insert(node_id);
-    let bruhh = raft.initialize(initial_members).await;
+
+    let initialize = raft.initialize(initial_members).await;
+    match initialize {
+        Ok(_) => {tracing::info!("initialized new db")}
+        Err(err) => {
+            println!("did not initialize new db: {err:?}");
+            tracing::info!("did not initialize new db: {}", err)
+        }
+    }
     let metrics = raft.metrics().borrow().clone();
     println!("{metrics:?}");
-    let response1 = raft.change_membership(BTreeSet::from([node_id]), false).await.unwrap();
 
     Arc::new(App {
         id: node_id,
