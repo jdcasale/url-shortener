@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use actix_web::http::header;
-use openraft::EntryPayload;
 use url::Url;
 use web::Json;
 use rocksdb_raft::start_raft_node;
