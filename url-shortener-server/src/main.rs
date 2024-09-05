@@ -69,17 +69,6 @@ async fn create_short_url(
 
     let hash = calculate_hash(req.long_url);
     let entry = LongUrlEntry::new(hash, url_str.clone(), 1u64);
-    // let raft_entry = openraft::Entry {
-    //     log_id: Default::default(),
-    //     payload: EntryPayload::Normal(entry.clone()),
-    // };
-    // let append_req = AppendEntriesRequest {
-    //     vote: Default::default(),
-    //     prev_log_id: None,
-    //     entries: vec![raft_entry],
-    //     leader_commit: None,
-    // };
-
 
     let resp = shared_state
         .raft

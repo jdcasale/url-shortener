@@ -211,7 +211,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
     {
         let entries = entries.into_iter();
         let mut replies = Vec::with_capacity(entries.size_hint().0);
-
+        let mut st = self.data.kvs.write().await;
         for ent in entries {
             self.data.last_applied_log_id = Some(ent.log_id);
 
@@ -222,7 +222,6 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
                 EntryPayload::Normal(req) => match req {
 
                     LongUrlEntry { hash, url, term } => {
-                        let mut st = self.data.kvs.write().await;
                         st.insert(hash, url);
                     }
                 },

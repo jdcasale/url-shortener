@@ -5,7 +5,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
-use maplit::btreeset;
 use openraft::{Config, RaftNetwork, Vote};
 use openraft::raft::VoteRequest;
 use tokio::net::TcpListener;
@@ -15,7 +14,6 @@ use tokio::task;
 use crate::app::App;
 use crate::network::api;
 use crate::network::management;
-// use crate::network::Network;
 use network::no_op_network_impl::NodeId;
 use crate::rocksb_store::TypeConfig;
 use crate::store::new_storage;
@@ -27,28 +25,7 @@ pub mod network;
 pub mod store;
 pub mod rocksb_store;
 
-// pub type NodeId = u64;
-
-// #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, Default)]
-// pub struct Node {
-//     pub rpc_addr: String,
-//     pub api_addr: String,
-// }
-//
-// impl Display for Node {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         write!(f, "Node {{ rpc_addr: {}, api_addr: {} }}", self.rpc_addr, self.api_addr)
-//     }
-// }
-
 pub type SnapshotData = Cursor<Vec<u8>>;
-
-// openraft::declare_raft_types!(
-//     pub TypeConfig:
-//         D = Request,
-//         R = Response,
-//         Node = Node,
-// );
 
 pub mod typ {
     use openraft::error::Infallible;
@@ -162,12 +139,6 @@ where
     let network = Arc::new(network::no_op_network_impl::NoopRaftNetwork {});
     // Create a local raft instance.
     let raft = openraft::Raft::new(node_id, config.clone(), network, log_store, state_machine_store).await.unwrap();
-    // raft.change_membership()
-    // let resp = raft.vote(
-    //     VoteRequest::new(Vote::new(0, 0),
-    //                      Some(LogId::new(CommittedLeaderId::new(0, node_id), 0))))
-    //     .await
-    //     .unwrap();
 
     // Apply the vote to the Raft node
     let mut initial_members = BTreeSet::new();
@@ -176,11 +147,6 @@ where
     let metrics = raft.metrics().borrow().clone();
     println!("{metrics:?}");
     let response1 = raft.change_membership(BTreeSet::from([node_id]), false).await.unwrap();
-    let response = raft.change_membership(
-        btreeset! {node_id}, true)
-        .await
-        .unwrap();
-    // println!("{resp:?}");
 
     Arc::new(App {
         id: node_id,
@@ -190,29 +156,4 @@ where
         key_values: kvs,
         config,
     })
-}
-
-
-
-pub async fn start_kvs<P>(
-    _node_id: NodeId,
-    dir: P,
-    _http_addr: String,
-    _rpc_addr: String,
-) -> Arc<RwLock<BTreeMap<String, String>>>
-    where
-        P: AsRef<Path>,
-{
-    // Create a configuration for the raft instance.
-    // let config = Config {
-    //     heartbeat_interval: 250,
-    //     election_timeout_min: 299,
-    //     ..Default::default()
-    // };
-
-    // let config = Arc::new(config.validate().unwrap());
-
-    let (_log_store, state_machine_store) = new_storage(&dir).await;
-    state_machine_store.data.kvs.clone()
-
 }
