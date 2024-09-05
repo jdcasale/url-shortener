@@ -1,14 +1,13 @@
 #![allow(clippy::uninlined_format_args)]
 #![deny(unused_qualifications)]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 use openraft::{Config, RaftNetwork, Vote};
 use openraft::raft::VoteRequest;
 use tokio::net::TcpListener;
-use tokio::sync::RwLock;
 use tokio::task;
 
 use crate::app::App;
