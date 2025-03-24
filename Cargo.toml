@@ -2,6 +2,7 @@
 members = [
     "url-shortener-server",
     "rocksdb-raft",
+    "blob-storage",
 ]
 
 #[dependencies]
