@@ -6,6 +6,8 @@ services:
       context: .
       dockerfile: url-shortener-server/Dockerfile
     command: --node-id 1 --leader-id 1 --http-addr "0.0.0.0:8080" --raft-rpc-addr "0.0.0.0:21001" --data-dir "/data"
+    environment:
+      - RUST_LOG=info,url_shortener_server=debug,rocksdb_raft=debug
     ports:
       - "8080:8080"  # HTTP API
       - "21001:21001"  # Raft RPC
@@ -25,6 +27,8 @@ services:
       context: .
       dockerfile: url-shortener-server/Dockerfile
     command: --node-id 2 --leader-id 1 --http-addr "0.0.0.0:8080" --raft-rpc-addr "0.0.0.0:21001" --data-dir "/data"
+    environment:
+      - RUST_LOG=info,url_shortener_server=debug,rocksdb_raft=debug
     ports:
       - "8081:8080"  # HTTP API
       - "21002:21001"  # Raft RPC
@@ -47,6 +51,8 @@ services:
       context: .
       dockerfile: url-shortener-server/Dockerfile
     command: --node-id 3 --leader-id 1 --http-addr "0.0.0.0:8080" --raft-rpc-addr "0.0.0.0:21001" --data-dir "/data"
+    environment:
+      - RUST_LOG=info,url_shortener_server=debug,rocksdb_raft=debug
     ports:
       - "8082:8080"  # HTTP API
       - "21003:21001"  # Raft RPC
@@ -71,23 +77,9 @@ services:
       context: .
       dockerfile: url-shortener-server/Dockerfile
     entrypoint: ["/bin/sh", "-c"]
-    command: >
-      "
-      # Wait for services to be ready
-      sleep 10 &&
-      
-      # Add node 2 as learner
-      curl -X POST http://url-shortener-1:8080/cluster/add-learner -H 'Content-Type: application/json' -d '[2, \"url-shortener-2:21001\"]' &&
-      echo 'Added node 2 as learner' &&
-      
-      # Add node 3 as learner
-      curl -X POST http://url-shortener-1:8080/cluster/add-learner -H 'Content-Type: application/json' -d '[3, \"url-shortener-3:21001\"]' &&
-      echo 'Added node 3 as learner' &&
-      
-      # Change membership to include all nodes
-      curl -X POST http://url-shortener-1:8080/cluster/change-membership -H 'Content-Type: application/json' -d '[1, 2, 3]' &&
-      echo 'Changed membership to include all nodes'
-      "
+    command: "/scripts/init-cluster.sh"
+    volumes:
+      - ./scripts/init-cluster.sh:/scripts/init-cluster.sh:ro
     networks:
       - url_shortener_network
     depends_on:
@@ -97,6 +89,7 @@ services:
         condition: service_healthy
       url-shortener-3:
         condition: service_healthy
+
 
 volumes:
   url_shortener_1_data:

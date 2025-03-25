@@ -172,14 +172,22 @@ async fn add_learner(
     shared_state: web::Data<AppStateWithCounter>
 ) -> impl Responder {
     let (node_id, rpc_addr) = req.into_inner();
+    tracing::info!("Attempting to add learner - node_id: {}, rpc_addr: {}", node_id, rpc_addr);
+    
     let node = rocksdb_raft::network::no_op_network_impl::Node {
-        addr: rpc_addr,
+        addr: rpc_addr.clone(),
     };
 
     let res = shared_state.raft.raft.add_learner(node_id, node, true).await;
     match res {
-        Ok(_) => HttpResponse::Ok().finish(),
-        Err(e) => HttpResponse::InternalServerError().body(format!("Failed to add learner: {}", e))
+        Ok(resp) => {
+            tracing::info!("Successfully added learner node {} at {}. Response: {:?}", node_id, rpc_addr, resp);
+            HttpResponse::Ok().json(resp)
+        }
+        Err(e) => {
+            tracing::error!("Failed to add learner node {} at {}. Error: {}", node_id, rpc_addr, e);
+            HttpResponse::InternalServerError().body(format!("Failed to add learner: {}", e))
+        }
     }
 }
 
@@ -189,16 +197,29 @@ async fn change_membership(
     shared_state: web::Data<AppStateWithCounter>
 ) -> impl Responder {
     let node_ids = req.into_inner();
-    let res = shared_state.raft.raft.change_membership(node_ids, false).await;
+    tracing::info!("Attempting to change membership. New membership: {:?}", node_ids);
+    
+    // Get current metrics to log the change
+    let current_metrics = shared_state.raft.raft.metrics().borrow().clone();
+    tracing::info!("Current cluster state before membership change: {:?}", current_metrics);
+
+    let res = shared_state.raft.raft.change_membership(node_ids.clone(), false).await;
     match res {
-        Ok(_) => HttpResponse::Ok().finish(),
-        Err(e) => HttpResponse::InternalServerError().body(format!("Failed to change membership: {}", e))
+        Ok(resp) => {
+            tracing::info!("Successfully changed membership to {:?}. Response: {:?}", node_ids, resp);
+            HttpResponse::Ok().json(resp)
+        }
+        Err(e) => {
+            tracing::error!("Failed to change membership to {:?}. Error: {}", node_ids, e);
+            HttpResponse::InternalServerError().body(format!("Failed to change membership: {}", e))
+        }
     }
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let args = Args::parse();
+    tracing_subscriber::fmt::init();
 
     let raft_app = start_raft_node(
         args.node_id,
