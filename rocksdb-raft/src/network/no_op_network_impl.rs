@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use openraft::raft::{AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse, VoteRequest, VoteResponse};
-use openraft::{RaftNetwork, RaftTypeConfig, RaftNetworkFactory};
-use openraft::error::{InstallSnapshotError, RaftError, RPCError, NetworkError};
+use openraft::{RaftNetwork, Vote, LeaderId, RaftTypeConfig, RaftNetworkFactory};
+use openraft::error::{InstallSnapshotError, RaftError, RPCError};
 use openraft::network::RPCOption;
 use crate::network::mclient::RaftManagementClient;
 use crate::rocksb_store::{TypeConfig};
@@ -34,10 +34,7 @@ impl RaftNetwork<TypeConfig> for Arc<NoopRaftNetwork> {
         if let Some(callbacks) = &self.callbacks {
             callbacks.append_entries(rpc).await
         } else {
-            Err(RPCError::Network(
-                NetworkError::new(
-                    &std::io::Error::new(
-                        std::io::ErrorKind::Other, "Network callbacks not configured"))))
+            Ok(AppendEntriesResponse::Success)
         }
     }
 
@@ -49,10 +46,12 @@ impl RaftNetwork<TypeConfig> for Arc<NoopRaftNetwork> {
         if let Some(callbacks) = &self.callbacks {
             callbacks.install_snapshot(rpc).await
         } else {
-            Err(RPCError::Network(
-                NetworkError::new(
-                    &std::io::Error::new(
-                        std::io::ErrorKind::Other, "Network callbacks not configured"))))
+            Ok(InstallSnapshotResponse {
+                vote: Vote {
+                    leader_id: LeaderId::new(rpc.vote.leader_id.node_id, rpc.vote.leader_id.term),
+                    committed: true
+                }
+            })
         }
     }
 
@@ -64,10 +63,14 @@ impl RaftNetwork<TypeConfig> for Arc<NoopRaftNetwork> {
         if let Some(callbacks) = &self.callbacks {
             callbacks.vote(rpc).await
         } else {
-            Err(RPCError::Network(
-                NetworkError::new(
-                    &std::io::Error::new(
-                        std::io::ErrorKind::Other, "Network callbacks not configured"))))
+            Ok(VoteResponse {
+                vote: Vote {
+                    leader_id: LeaderId::new(rpc.vote.leader_id.node_id, rpc.vote.leader_id.term),
+                    committed: true
+                },
+                vote_granted: true,
+                last_log_id: None
+            })
         }
     }
 }

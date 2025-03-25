@@ -32,12 +32,13 @@ impl RaftManagementClient {
             _ => panic!("Unsupported HTTP method: {}", method),
         };
 
+        tracing::info!("sending internal rpc request {:?}", request);
         let response = request
             .json(&body)
             .send()
             .await
             .map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
-
+        tracing::info!("internal rpc response {:?}", response);
         let status = response.status();
         if !status.is_success() {
             return Err(RPCError::Network(NetworkError::new(&std::io::Error::new(std::io::ErrorKind::Other, format!("HTTP error: {}", status)))));

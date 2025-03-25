@@ -14,9 +14,8 @@ use url::Url;
 use web::Json;
 use rocksdb_raft::{network, start_raft_node};
 use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest};
-use rocksdb_raft::rocksb_store::{LongUrlEntry};
 use crate::errors::ShortenerErr;
-use rocksdb_raft::rocksb_store::TypeConfig;
+use rocksdb_raft::rocksb_store::{LongUrlEntry, TypeConfig};
 use crate::params::Args;
 
 #[derive(Serialize, Deserialize)]
@@ -77,13 +76,21 @@ async fn create_short_url(
         .raft
         .client_write(entry)
         .await;
-    let _ = resp.unwrap();
-    // shared_state.rocks_app.append_entry(entry);
-    shared_state.long_url_lookup.insert(hash, url_str.clone());
-    let resp = CreateShortUrlResponse{short_url: format!("{:x}", hash)};
-    HttpResponse::Ok()
-        .content_type(APP_TYPE_JSON)
-        .json(resp)
+
+    match resp {
+        Ok(raft_resp) => {
+            tracing::info!("raft resp: {:?}", raft_resp);
+            shared_state.long_url_lookup.insert(hash, url_str.clone());
+            let resp = CreateShortUrlResponse{short_url: format!("{:x}", hash)};
+            HttpResponse::Ok()
+                .content_type(APP_TYPE_JSON)
+                .json(resp)
+        }
+        Err(e) => {
+            tracing::error!("Failed to write to raft: {:?}", e);
+            HttpResponse::InternalServerError().body("Failed to write to raft")
+        }
+    }
 }
 
 
@@ -105,6 +112,7 @@ async fn lookup_url<'a>(
     //         .json(resp)
     // }
     let hash_str = hash.to_string();
+
     let guard = shared_state.raft.key_values.read().await;
     let from_kvs = guard.get(&hash_str);
     // let from_kvs = shared_state.rocks_app.get_entry(hash);
@@ -114,6 +122,7 @@ async fn lookup_url<'a>(
             .content_type(APP_TYPE_JSON)
             .json(resp)
     }
+    tracing::error!("not found {}", hash);
     HttpResponse::NotFound().finish()
 }
 
