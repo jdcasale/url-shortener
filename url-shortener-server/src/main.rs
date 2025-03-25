@@ -166,44 +166,65 @@ async fn install_snapshot(req: Json<InstallSnapshotRequest<TypeConfig>>,
         .map(|resp| HttpResponse::Ok().json(resp))
 }
 
-// #[post("/raft/install_snapshot")]
-// async fn install_snapshot(req: Json<InstallSnapshotRequest<TypeConfig>>,
-//                           shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
-//     shared_state.raft.raft.add.install_snapshot(req.0)
-//         .await
-//         .map_err(ShortenerErr::RaftError2)
-//         .map(|resp| HttpResponse::Ok().json(resp))
-// }
+#[post("/cluster/add-learner")]
+async fn add_learner(
+    req: web::Json<(u64, String)>,
+    shared_state: web::Data<AppStateWithCounter>
+) -> impl Responder {
+    let (node_id, rpc_addr) = req.into_inner();
+    let node = rocksdb_raft::network::no_op_network_impl::Node {
+        addr: rpc_addr,
+    };
 
+    let res = shared_state.raft.raft.add_learner(node_id, node, true).await;
+    match res {
+        Ok(_) => HttpResponse::Ok().finish(),
+        Err(e) => HttpResponse::InternalServerError().body(format!("Failed to add learner: {}", e))
+    }
+}
+
+#[post("/cluster/change-membership")]
+async fn change_membership(
+    req: web::Json<std::collections::BTreeSet<u64>>,
+    shared_state: web::Data<AppStateWithCounter>
+) -> impl Responder {
+    let node_ids = req.into_inner();
+    let res = shared_state.raft.raft.change_membership(node_ids, false).await;
+    match res {
+        Ok(_) => HttpResponse::Ok().finish(),
+        Err(e) => HttpResponse::InternalServerError().body(format!("Failed to change membership: {}", e))
+    }
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let args = Args::parse();
-    let raft_rpc_addr = "0.0.0.0:21001".to_string();
 
-    let raft_app =  start_raft_node(
+    let raft_app = start_raft_node(
         args.node_id,
-        format!("{}.db", raft_rpc_addr),
-        raft_rpc_addr.clone(),
-        raft_rpc_addr.clone())
+        format!("{}.db", args.raft_rpc_addr),
+        args.http_addr.clone(),
+        args.raft_rpc_addr.clone())
         .await;
+
     let cache = web::Data::new(AppStateWithCounter {
         long_url_lookup: Cache::new(100_000_000),
         raft: raft_app
     });
 
-
     HttpServer::new(move || {
-        // move counter into the closure
         App::new()
             .app_data(cache.clone())
             .service(create_short_url)
             .service(lookup_url)
+            .service(hello)
             .service(redirect)
             .service(append_entries)
             .service(install_snapshot)
+            .service(add_learner)
+            .service(change_membership)
     })
-    .bind(("0.0.0.0", 8080))?
+    .bind(args.http_addr)?
     .run()
     .await
 }
