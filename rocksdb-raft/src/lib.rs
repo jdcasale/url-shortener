@@ -14,6 +14,7 @@ use crate::app::App;
 use crate::network::api;
 use crate::network::management;
 use network::no_op_network_impl::NodeId;
+use crate::network::no_op_network_impl::NoopRaftNetwork;
 use crate::rocksb_store::TypeConfig;
 use crate::store::new_storage;
 use crate::store::Request;
@@ -72,7 +73,7 @@ pub async fn start_example_raft_node<P>(
 
     // Create the network layer that will connect and communicate the raft instances and
     // will be used in conjunction with the store created above.
-    let network = Arc::new(network::no_op_network_impl::NoopRaftNetwork {});
+    let network = Arc::new(NoopRaftNetwork::new());
 
 
     // Create a local raft instance.
@@ -116,6 +117,7 @@ pub async fn start_raft_node<P>(
     dir: P,
     http_addr: String,
     rpc_addr: String,
+    network: Arc<NoopRaftNetwork>
 ) -> Arc<App>
 where
     P: AsRef<Path>,
@@ -135,7 +137,7 @@ where
 
     // Create the network layer that will connect and communicate the raft instances and
     // will be used in conjunction with the store created above.
-    let network = Arc::new(network::no_op_network_impl::NoopRaftNetwork {});
+
     // Create a local raft instance.
     let raft = openraft::Raft::new(node_id, config.clone(), network, log_store, state_machine_store).await.unwrap();
 

@@ -3,9 +3,24 @@ use openraft::raft::{AppendEntriesRequest, AppendEntriesResponse, InstallSnapsho
 use openraft::{RaftNetwork, Vote, LeaderId, RaftTypeConfig, RaftNetworkFactory};
 use openraft::error::{InstallSnapshotError, RaftError, RPCError};
 use openraft::network::RPCOption;
+use crate::network::mclient::RaftManagementClient;
 use crate::rocksb_store::{TypeConfig};
 
-pub struct NoopRaftNetwork  ;
+#[derive(Clone)]
+pub struct NoopRaftNetwork {
+    callbacks: Option<RaftManagementClient>
+}
+
+
+impl NoopRaftNetwork {
+    pub fn new() -> NoopRaftNetwork {
+        NoopRaftNetwork { callbacks: None }
+    }
+
+    pub fn set_callbacks(&mut self, callbacks: RaftManagementClient) {
+        self.callbacks = Some(callbacks);
+    }
+}
 
 pub type NodeId = <TypeConfig as RaftTypeConfig>::NodeId;
 pub type Node = <TypeConfig as RaftTypeConfig>::Node;
@@ -43,6 +58,7 @@ impl RaftNetwork<TypeConfig> for Arc<NoopRaftNetwork> {
         // })
     }
 }
+
 
 
 impl RaftNetworkFactory<TypeConfig> for Arc<NoopRaftNetwork> {

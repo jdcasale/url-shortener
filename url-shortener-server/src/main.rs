@@ -12,7 +12,7 @@ use actix_web::http::header;
 use clap::Parser;
 use url::Url;
 use web::Json;
-use rocksdb_raft::start_raft_node;
+use rocksdb_raft::{network, start_raft_node};
 use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest};
 use rocksdb_raft::rocksb_store::{LongUrlEntry};
 use crate::errors::ShortenerErr;
@@ -221,19 +221,25 @@ async fn main() -> std::io::Result<()> {
     let args = Args::parse();
     tracing_subscriber::fmt::init();
 
+    // Create your NoopRaftNetwork instance early on.
+    let mut raft_network = rocksdb_raft::network::no_op_network_impl::NoopRaftNetwork::new();
+
+    // Create the Raft node (which uses the network)
     let raft_app = start_raft_node(
         args.node_id,
         format!("{}.db", args.raft_rpc_addr),
         args.http_addr.clone(),
-        args.raft_rpc_addr.clone())
+        args.raft_rpc_addr.clone(),
+        Arc::new(raft_network.clone()))
         .await;
 
     let cache = web::Data::new(AppStateWithCounter {
         long_url_lookup: Cache::new(100_000_000),
-        raft: raft_app
+        raft: raft_app,
     });
 
-    HttpServer::new(move || {
+    // Spawn the HTTP server in a background task.
+    let server = HttpServer::new(move || {
         App::new()
             .app_data(cache.clone())
             .service(create_short_url)
@@ -245,9 +251,23 @@ async fn main() -> std::io::Result<()> {
             .service(add_learner)
             .service(change_membership)
     })
-    .bind(args.http_addr)?
-    .run()
-    .await
+        .bind(args.http_addr.clone())?
+        .run();
+
+    // Spawn the server without awaiting immediately.
+    let server_handle = actix_web::rt::spawn(server);
+
+    // Now that the server is online (or being started), create the client handle.
+    let raft_client = network::mclient::RaftManagementClient::new(args.http_addr.clone());
+
+    // Inject the client callbacks into your network implementation.
+    // For example, if NoopRaftNetwork has a setter:
+    raft_network.set_callbacks(raft_client);
+
+    // Continue with the rest of your program.
+    // Await the server task so that your application keeps running.
+    server_handle.await??;
+    Ok(())
 }
 
 fn calculate_hash(t: &str) -> u64 {
