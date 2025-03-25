@@ -33,14 +33,14 @@ impl RaftNetwork<TypeConfig> for Arc<NoopRaftNetwork> {
 
     async fn vote(&mut self, _rpc: VoteRequest<u64>, _option: RPCOption) -> Result<VoteResponse<u64>, RPCError<u64, Node, RaftError<u64>>> {
         panic!("fffffffffffff");
-        Ok(VoteResponse {
-            vote: Vote {
-            leader_id: LeaderId::new(1, 1),
-            committed: true
-            },
-            vote_granted: true,
-            last_log_id: None,
-        })
+        // Ok(VoteResponse {
+        //     vote: Vote {
+        //     leader_id: LeaderId::new(1, 1),
+        //     committed: true
+        //     },
+        //     vote_granted: true,
+        //     last_log_id: None,
+        // })
     }
 }
 

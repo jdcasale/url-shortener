@@ -3914,6 +3914,7 @@ dependencies = [
  "actix-web",
  "async-trait",
  "awc",
+ "clap",
  "criterion",
  "log",
  "moka",

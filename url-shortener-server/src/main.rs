@@ -1,6 +1,7 @@
 extern crate core;
 
 mod errors;
+mod params;
 
 use actix_web::{post, web, App, HttpResponse, HttpServer, Responder, get};
 use quick_cache::sync::{Cache};
@@ -8,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use actix_web::http::header;
+use clap::Parser;
 use url::Url;
 use web::Json;
 use rocksdb_raft::start_raft_node;
@@ -15,6 +17,7 @@ use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest};
 use rocksdb_raft::rocksb_store::{LongUrlEntry};
 use crate::errors::ShortenerErr;
 use rocksdb_raft::rocksb_store::TypeConfig;
+use crate::params::Args;
 
 #[derive(Serialize, Deserialize)]
 struct Hello {}
@@ -138,7 +141,7 @@ async fn redirect(
 
 #[get("/hello")]
 async fn hello() -> impl Responder {
-    return HttpResponse::Ok()
+    HttpResponse::Ok()
         .content_type(APP_TYPE_JSON)
         .json(Hello {})
 }
@@ -175,10 +178,11 @@ async fn install_snapshot(req: Json<InstallSnapshotRequest<TypeConfig>>,
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    let args = Args::parse();
     let raft_rpc_addr = "0.0.0.0:21001".to_string();
 
     let raft_app =  start_raft_node(
-        0,
+        args.node_id,
         format!("{}.db", raft_rpc_addr),
         raft_rpc_addr.clone(),
         raft_rpc_addr.clone())
