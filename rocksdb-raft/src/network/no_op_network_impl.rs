@@ -19,6 +19,15 @@ impl NoopRaftNetwork {
     pub fn set_callbacks(&mut self, callbacks: RaftManagementClient) {
         self.callbacks = Some(callbacks);
     }
+
+    // Create a new network instance for a specific target node
+    pub fn for_target(node: &Node) -> Self {
+        let base_url = format!("http://{}", node.addr);
+        let client = RaftManagementClient::new(base_url);
+        NoopRaftNetwork {
+            callbacks: Some(client)
+        }
+    }
 }
 
 pub type NodeId = <TypeConfig as RaftTypeConfig>::NodeId;
@@ -78,8 +87,8 @@ impl RaftNetwork<TypeConfig> for Arc<NoopRaftNetwork> {
 impl RaftNetworkFactory<TypeConfig> for Arc<NoopRaftNetwork> {
     type Network = Arc<NoopRaftNetwork>;
 
-    async fn new_client(&mut self, _target: NodeId, _node: &Node) -> Self::Network {
-        Arc::clone(self)
+    async fn new_client(&mut self, _target: NodeId, node: &Node) -> Self::Network {
+        Arc::new(NoopRaftNetwork::for_target(node))
     }
 }
 
