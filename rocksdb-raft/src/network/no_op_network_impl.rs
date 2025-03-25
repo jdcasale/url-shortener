@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use openraft::raft::{AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse, VoteRequest, VoteResponse};
-use openraft::{RaftNetwork, Vote, LeaderId, RaftTypeConfig, RaftNetworkFactory};
-use openraft::error::{InstallSnapshotError, RaftError, RPCError};
+use openraft::{RaftNetwork, RaftTypeConfig, RaftNetworkFactory};
+use openraft::error::{InstallSnapshotError, RaftError, RPCError, NetworkError};
 use openraft::network::RPCOption;
 use crate::network::mclient::RaftManagementClient;
 use crate::rocksb_store::{TypeConfig};
@@ -10,7 +10,6 @@ use crate::rocksb_store::{TypeConfig};
 pub struct NoopRaftNetwork {
     callbacks: Option<RaftManagementClient>
 }
-
 
 impl NoopRaftNetwork {
     pub fn new() -> NoopRaftNetwork {
@@ -26,40 +25,52 @@ pub type NodeId = <TypeConfig as RaftTypeConfig>::NodeId;
 pub type Node = <TypeConfig as RaftTypeConfig>::Node;
 pub type EntryBruv = <TypeConfig as RaftTypeConfig>::Entry;
 
-
 impl RaftNetwork<TypeConfig> for Arc<NoopRaftNetwork> {
     async fn append_entries(
         &mut self,
-        _rpc: AppendEntriesRequest<TypeConfig>, _option: RPCOption) -> Result<AppendEntriesResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId>>> where Self : 'static {
-        Ok(AppendEntriesResponse::Success)
+        rpc: AppendEntriesRequest<TypeConfig>,
+        _option: RPCOption,
+    ) -> Result<AppendEntriesResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId>>> {
+        if let Some(callbacks) = &self.callbacks {
+            callbacks.append_entries(rpc).await
+        } else {
+            Err(RPCError::Network(
+                NetworkError::new(
+                    &std::io::Error::new(
+                        std::io::ErrorKind::Other, "Network callbacks not configured"))))
+        }
     }
 
     async fn install_snapshot(
         &mut self,
-        _rpc: InstallSnapshotRequest<TypeConfig>,
-        _option: RPCOption) -> Result<InstallSnapshotResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId, InstallSnapshotError>>> {
-        Ok(InstallSnapshotResponse {
-            vote: Vote {
-                leader_id: LeaderId::new(1, 1),
-                committed: true
-            },
-        })
+        rpc: InstallSnapshotRequest<TypeConfig>,
+        _option: RPCOption,
+    ) -> Result<InstallSnapshotResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId, InstallSnapshotError>>> {
+        if let Some(callbacks) = &self.callbacks {
+            callbacks.install_snapshot(rpc).await
+        } else {
+            Err(RPCError::Network(
+                NetworkError::new(
+                    &std::io::Error::new(
+                        std::io::ErrorKind::Other, "Network callbacks not configured"))))
+        }
     }
 
-    async fn vote(&mut self, _rpc: VoteRequest<u64>, _option: RPCOption) -> Result<VoteResponse<u64>, RPCError<u64, Node, RaftError<u64>>> {
-        panic!("fffffffffffff");
-        // Ok(VoteResponse {
-        //     vote: Vote {
-        //     leader_id: LeaderId::new(1, 1),
-        //     committed: true
-        //     },
-        //     vote_granted: true,
-        //     last_log_id: None,
-        // })
+    async fn vote(
+        &mut self,
+        rpc: VoteRequest<NodeId>,
+        _option: RPCOption,
+    ) -> Result<VoteResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId>>> {
+        if let Some(callbacks) = &self.callbacks {
+            callbacks.vote(rpc).await
+        } else {
+            Err(RPCError::Network(
+                NetworkError::new(
+                    &std::io::Error::new(
+                        std::io::ErrorKind::Other, "Network callbacks not configured"))))
+        }
     }
 }
-
-
 
 impl RaftNetworkFactory<TypeConfig> for Arc<NoopRaftNetwork> {
     type Network = Arc<NoopRaftNetwork>;
