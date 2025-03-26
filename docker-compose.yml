@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  url-shortener-1:
+    build:
+      context: .
+      dockerfile: url-shortener-server/Dockerfile
+    command: --node-id 1 --leader-id 1 --http-addr "0.0.0.0:8080" --raft-rpc-addr "0.0.0.0:21001" --data-dir "/data"
+    environment:
+      - RUST_LOG=info,url_shortener_server=debug,rocksdb_raft=debug
+    ports:
+      - "8080:8080"  # HTTP API
+      - "21001:21001"  # Raft RPC
+    volumes:
+      - url_shortener_1_data:/data
+    networks:
+      - url_shortener_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/hello"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  url-shortener-2:
+    build:
+      context: .
+      dockerfile: url-shortener-server/Dockerfile
+    command: --node-id 2 --leader-id 1 --http-addr "0.0.0.0:8080" --raft-rpc-addr "0.0.0.0:21001" --data-dir "/data"
+    environment:
+      - RUST_LOG=info,url_shortener_server=debug,rocksdb_raft=debug
+    ports:
+      - "8081:8080"  # HTTP API
+      - "21002:21001"  # Raft RPC
+    volumes:
+      - url_shortener_2_data:/data
+    networks:
+      - url_shortener_network
+    depends_on:
+      url-shortener-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/hello"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  url-shortener-3:
+    build:
+      context: .
+      dockerfile: url-shortener-server/Dockerfile
+    command: --node-id 3 --leader-id 1 --http-addr "0.0.0.0:8080" --raft-rpc-addr "0.0.0.0:21001" --data-dir "/data"
+    environment:
+      - RUST_LOG=info,url_shortener_server=debug,rocksdb_raft=debug
+    ports:
+      - "8082:8080"  # HTTP API
+      - "21003:21001"  # Raft RPC
+    volumes:
+      - url_shortener_3_data:/data
+    networks:
+      - url_shortener_network
+    depends_on:
+      url-shortener-1:
+        condition: service_healthy
+      url-shortener-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/hello"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  init-cluster:
+    build:
+      context: .
+      dockerfile: url-shortener-server/Dockerfile
+    entrypoint: ["/bin/sh", "-c"]
+    command: "/scripts/init-cluster.sh"
+    volumes:
+      - ./scripts/init-cluster.sh:/scripts/init-cluster.sh:ro
+    networks:
+      - url_shortener_network
+    depends_on:
+      url-shortener-1:
+        condition: service_healthy
+      url-shortener-2:
+        condition: service_healthy
+      url-shortener-3:
+        condition: service_healthy
+
+
+volumes:
+  url_shortener_1_data:
+  url_shortener_2_data:
+  url_shortener_3_data:
+
+networks:
+  url_shortener_network:
+    driver: bridge 

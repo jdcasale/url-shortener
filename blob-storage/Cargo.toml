@@ -1,0 +1,18 @@
+[package]
+name = "blob-store"
+version = "0.1.0"
+readme = "README.md"
+
+edition = "2021"
+authors = [
+    "Josh Casale <joshua.d.casale@gmail.com>",
+]
+
+
+[lib]
+
+
+[dev-dependencies]
+uuid = { version = "1.0", features = ["v4"] }
+[dependencies]
+uuid = { version = "1.16.0", features = ["v4"] }

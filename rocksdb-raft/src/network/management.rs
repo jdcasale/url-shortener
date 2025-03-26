@@ -10,7 +10,7 @@ use tide::Response;
 use tide::StatusCode;
 
 use crate::app::App;
-use crate::Node;
+use crate::network::callback_network_impl::Node;
 use crate::NodeId;
 use crate::Server;
 
@@ -30,8 +30,8 @@ pub fn rest(app: &mut Server) {
 /// This should be done before adding a node as a member into the cluster
 /// (by calling `change-membership`)
 async fn add_learner(mut req: Request<Arc<App>>) -> tide::Result {
-    let (node_id, api_addr, rpc_addr): (NodeId, String, String) = req.body_json().await?;
-    let node = Node { rpc_addr, api_addr };
+    let (node_id, _api_addr, rpc_addr): (NodeId, String, String) = req.body_json().await?;
+    let node = Node { addr: rpc_addr };
     let res = req.state().raft.add_learner(node_id, node, true).await;
     Ok(Response::builder(StatusCode::Ok).body(Body::from_json(&res)?).build())
 }
@@ -47,8 +47,7 @@ async fn change_membership(mut req: Request<Arc<App>>) -> tide::Result {
 async fn init(req: Request<Arc<App>>) -> tide::Result {
     let mut nodes = BTreeMap::new();
     let node = Node {
-        api_addr: req.state().api_addr.clone(),
-        rpc_addr: req.state().rpc_addr.clone(),
+        addr: req.state().api_addr.clone(),
     };
 
     nodes.insert(req.state().id, node);
