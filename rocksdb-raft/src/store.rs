@@ -317,7 +317,9 @@ impl LogStore {
                 b"last_purged_log_id",
                 serde_json::to_vec(&log_id).unwrap().as_slice(),
             )
-            .map_err(|e| StorageIOError::write(&e))?;
+            .map_err(|e| StorageError::IO {
+                source: StorageIOError::write(AnyError::new(&e))
+            })?;
 
         self.flush(ErrorSubject::Store, ErrorVerb::Write)?;
         Ok(())
@@ -326,7 +328,7 @@ impl LogStore {
     fn set_committed_(&self, committed: &Option<LogId<NodeId>>) -> Result<(), StorageIOError<NodeId>> {
         let json = serde_json::to_vec(committed).unwrap();
 
-        self.db.put_cf(self.store(), b"committed", json).map_err(|e| StorageIOError::write(&e))?;
+        self.db.put_cf(self.store(), b"committed", json).map_err(|e| StorageIOError::write(AnyError::new(&e)))?;
 
         self.flush(ErrorSubject::Store, ErrorVerb::Write)?;
         Ok(())
@@ -374,21 +376,26 @@ impl RaftLogReader<TypeConfig> for LogStore {
             std::ops::Bound::Excluded(x) => id_to_bin(*x + 1),
             std::ops::Bound::Unbounded => id_to_bin(0),
         };
-        self.db
-            .iterator_cf(self.logs(), rocksdb::IteratorMode::From(&start, Direction::Forward))
-            .map(|res| {
-                let (id, val) = res.unwrap();
-                let entry: StorageResult<Entry<_>> = serde_json::from_slice(&val).map_err(|e| StorageError::IO {
-                    source: StorageIOError::read_logs(&e),
-                });
-                let id = bin_to_id(&id);
 
-                assert_eq!(Ok(id), entry.as_ref().map(|e| e.log_id.index));
-                (id, entry)
-            })
-            .take_while(|(id, _)| range.contains(id))
-            .map(|x| x.1)
-            .collect()
+        let mut entries = Vec::new();
+        for res in self.db.iterator_cf(self.logs(), rocksdb::IteratorMode::From(&start, Direction::Forward)) {
+            let (id, val) = res.map_err(|e| StorageError::IO {
+                source: StorageIOError::read_logs(AnyError::new(&e))
+            })?;
+            
+            let id = bin_to_id(&id);
+            if !range.contains(&id) {
+                break;
+            }
+
+            let entry: Entry<TypeConfig> = serde_json::from_slice(&val).map_err(|e| StorageError::IO {
+                source: StorageIOError::read_logs(AnyError::new(&e))
+            })?;
+            
+            entries.push(entry);
+        }
+        
+        Ok(entries)
     }
 }
 
@@ -438,16 +445,42 @@ impl RaftLogStorage<TypeConfig> for LogStore {
             I: IntoIterator<Item = Entry<TypeConfig>> + Send,
             I::IntoIter: Send,
     {
+        let mut entries: Vec<_> = entries.into_iter().collect();
+        
+        // Sort entries by log index to ensure sequential order
+        entries.sort_by_key(|e| e.log_id.index);
+        
+        // Check for gaps in the sequence
+        if let Some(first) = entries.first() {
+            let mut expected_index = first.log_id.index;
+            for entry in &entries {
+                if entry.log_id.index != expected_index {
+                    return Err(StorageError::IO {
+                        source: StorageIOError::write_logs(AnyError::error(&format!(
+                            "Non-sequential log entries: expected index {}, got {}",
+                            expected_index,
+                            entry.log_id.index
+                        )))
+                    });
+                }
+                expected_index += 1;
+            }
+        }
+
+        // Write entries in sequence
         for entry in entries {
             let id = id_to_bin(entry.log_id.index);
-            assert_eq!(bin_to_id(&id), entry.log_id.index);
             self.db
                 .put_cf(
                     self.logs(),
                     id,
-                    serde_json::to_vec(&entry).map_err(|e| StorageIOError::write_logs(&e))?,
+                    serde_json::to_vec(&entry).map_err(|e| StorageError::IO {
+                        source: StorageIOError::write_logs(AnyError::new(&e))
+                    })?,
                 )
-                .map_err(|e| StorageIOError::write_logs(&e))?;
+                .map_err(|e| StorageError::IO {
+                    source: StorageIOError::write_logs(AnyError::new(&e))
+                })?;
         }
 
         callback.log_io_completed(Ok(()));
@@ -461,7 +494,9 @@ impl RaftLogStorage<TypeConfig> for LogStore {
 
         let from = id_to_bin(log_id.index);
         let to = id_to_bin(0xff_ff_ff_ff_ff_ff_ff_ff);
-        self.db.delete_range_cf(self.logs(), &from, &to).map_err(|e| StorageIOError::write_logs(&e).into())
+        self.db.delete_range_cf(self.logs(), &from, &to).map_err(|e| StorageError::IO {
+            source: StorageIOError::write_logs(AnyError::new(&e))
+        })
     }
 
     #[tracing::instrument(level = "debug", skip(self))]
@@ -471,7 +506,9 @@ impl RaftLogStorage<TypeConfig> for LogStore {
         self.set_last_purged_(log_id)?;
         let from = id_to_bin(0);
         let to = id_to_bin(log_id.index + 1);
-        self.db.delete_range_cf(self.logs(), &from, &to).map_err(|e| StorageIOError::write_logs(&e).into())
+        self.db.delete_range_cf(self.logs(), &from, &to).map_err(|e| StorageError::IO {
+            source: StorageIOError::write_logs(AnyError::new(&e))
+        })
     }
 
     async fn get_log_reader(&mut self) -> Self::LogReader {

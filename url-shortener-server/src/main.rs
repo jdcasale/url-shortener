@@ -102,6 +102,7 @@ async fn lookup_url<'a>(
 
     let to_hash = u64::from_str_radix(&from_path, 16);
     if let Err(e) = to_hash {
+        tracing::error!("breeeeehhhhhhhhhhhhhhh");
         return HttpResponse::from_error(ShortenerErr::JsonError2(e));
     }
     let hash = to_hash.expect("already checked");
@@ -182,7 +183,7 @@ async fn add_learner(
 ) -> impl Responder {
     let (node_id, rpc_addr) = req.into_inner();
     tracing::info!("Attempting to add learner - node_id: {}, rpc_addr: {}", node_id, rpc_addr);
-    
+
     let node = rocksdb_raft::network::no_op_network_impl::Node {
         addr: rpc_addr.clone(),
     };
@@ -207,7 +208,7 @@ async fn change_membership(
 ) -> impl Responder {
     let node_ids = req.into_inner();
     tracing::info!("Attempting to change membership. New membership: {:?}", node_ids);
-    
+
     // Get current metrics to log the change
     let current_metrics = shared_state.raft.raft.metrics().borrow().clone();
     tracing::info!("Current cluster state before membership change: {:?}", current_metrics);

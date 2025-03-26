@@ -70,8 +70,11 @@ impl RaftNetwork<TypeConfig> for Arc<NoopRaftNetwork> {
         _option: RPCOption,
     ) -> Result<VoteResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId>>> {
         if let Some(callbacks) = &self.callbacks {
+            // Forward the vote request to the target node
             callbacks.vote(rpc).await
         } else {
+            // If no callbacks are set, this is likely the target node
+            // Grant the vote if the term is higher than our current term
             Ok(VoteResponse {
                 vote: Vote {
                     leader_id: LeaderId::new(rpc.vote.leader_id.node_id, rpc.vote.leader_id.term),
