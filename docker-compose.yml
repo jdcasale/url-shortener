@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: url-shortener-server/Dockerfile
-    command: --node-id 1 --leader-id 1 --http-addr "0.0.0.0:8080" --raft-rpc-addr "0.0.0.0:21001" --data-dir "/data"
+    command: --node-id 1 --leader-id 1 --http-addr "url-shortener-1:8080" --raft-rpc-addr "0.0.0.0:21001" --data-dir "/data"
     environment:
       - RUST_LOG=info,url_shortener_server=debug,rocksdb_raft=debug
     ports:
@@ -16,7 +16,7 @@ services:
     networks:
       - url_shortener_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/hello"]
+      test: ["CMD", "curl", "-f", "http://url-shortener-1:8080/hello"]
       interval: 5s
       timeout: 3s
       retries: 3
@@ -26,7 +26,7 @@ services:
     build:
       context: .
       dockerfile: url-shortener-server/Dockerfile
-    command: --node-id 2 --leader-id 1 --http-addr "0.0.0.0:8080" --raft-rpc-addr "0.0.0.0:21001" --data-dir "/data"
+    command: --node-id 2 --leader-id 1 --http-addr "url-shortener-2:8080" --raft-rpc-addr "0.0.0.0:21001" --data-dir "/data"
     environment:
       - RUST_LOG=info,url_shortener_server=debug,rocksdb_raft=debug
     ports:
@@ -40,7 +40,7 @@ services:
       url-shortener-1:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/hello"]
+      test: ["CMD", "curl", "-f", "http://url-shortener-2:8080/hello"]
       interval: 5s
       timeout: 3s
       retries: 3
@@ -50,7 +50,7 @@ services:
     build:
       context: .
       dockerfile: url-shortener-server/Dockerfile
-    command: --node-id 3 --leader-id 1 --http-addr "0.0.0.0:8080" --raft-rpc-addr "0.0.0.0:21001" --data-dir "/data"
+    command: --node-id 3 --leader-id 1 --http-addr "url-shortener-3:8080" --raft-rpc-addr "0.0.0.0:21001" --data-dir "/data"
     environment:
       - RUST_LOG=info,url_shortener_server=debug,rocksdb_raft=debug
     ports:
@@ -66,7 +66,7 @@ services:
       url-shortener-2:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/hello"]
+      test: ["CMD", "curl", "-f", "http://url-shortener-3:8080/hello"]
       interval: 5s
       timeout: 3s
       retries: 10

@@ -1,7 +1,7 @@
 # ----------------------------------------
 # STAGE 1: base image with all build deps
 # ----------------------------------------
-FROM rustlang/rust:nightly-slim as chef
+FROM rustlang/rust:nightly-slim AS chef
 WORKDIR /usr/src/app
 
 # Install dependencies for RocksDB and bindgen
@@ -26,21 +26,21 @@ RUN cargo install cargo-chef
 # ----------------------------------------
 # STAGE 2: plan dependencies
 # ----------------------------------------
-FROM chef as planner
+FROM chef AS planner
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
 # ----------------------------------------
 # STAGE 3: build dependencies (cached if no Cargo.toml changes)
 # ----------------------------------------
-FROM chef as cacher
+FROM chef AS cacher
 COPY --from=planner /usr/src/app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
 # ----------------------------------------
 # STAGE 4: build actual application
 # ----------------------------------------
-FROM chef as builder
+FROM chef AS builder
 COPY . .
 COPY --from=cacher /usr/src/app/target /usr/src/app/target
 RUN cargo build --release

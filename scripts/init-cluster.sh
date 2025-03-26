@@ -1,11 +1,6 @@
 #!/bin/sh
 set -ex
 
-# First initialize the first node
-curl -X POST http://url-shortener-1:8080/cluster/init \
-  -H "Content-Type: application/json" \
-  -d '{}'
-
 # Wait for the first node to be ready
 sleep 2
 
