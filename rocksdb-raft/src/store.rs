@@ -50,6 +50,7 @@ use crate::SnapshotData;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
     Set { key: String, value: String },
+    CreateShortUrl { long_url: String },
 }
 
 /**
@@ -63,6 +64,7 @@ pub enum Request {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Response {
     pub value: Option<String>,
+    pub short_url: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -212,25 +214,28 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
         let entries = entries.into_iter();
         let mut replies = Vec::with_capacity(entries.size_hint().0);
         let mut st = self.data.kvs.write().await;
+
         for ent in entries {
             self.data.last_applied_log_id = Some(ent.log_id);
 
-            let resp_value = None;
-
             match ent.payload {
-                EntryPayload::Blank => {}
+                EntryPayload::Blank => {
+                    replies.push(Response { value: None, short_url: None });
+                }
                 EntryPayload::Normal(req) => match req {
-
                     LongUrlEntry { hash, url, .. } => {
-                        st.insert(hash, url);
+                        st.insert(hash.clone(), url);
+                        replies.push(Response { 
+                            value: None, 
+                            short_url: Some(hash.to_string())
+                        });
                     }
                 },
                 EntryPayload::Membership(mem) => {
                     self.data.last_membership = StoredMembership::new(Some(ent.log_id), mem);
+                    replies.push(Response { value: None, short_url: None });
                 }
             }
-
-            replies.push(Response { value: resp_value });
         }
         Ok(replies)
     }

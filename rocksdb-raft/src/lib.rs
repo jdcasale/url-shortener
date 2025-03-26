@@ -1,11 +1,11 @@
 #![allow(clippy::uninlined_format_args)]
 #![deny(unused_qualifications)]
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
-use openraft::{Config, Vote};
+use openraft::{BasicNode, Config, Vote};
 use openraft::raft::VoteRequest;
 use tokio::net::TcpListener;
 use tokio::task;
@@ -142,8 +142,8 @@ where
     let raft = openraft::Raft::new(node_id, config.clone(), network, log_store, state_machine_store).await.unwrap();
 
     // Apply the vote to the Raft node
-    let mut initial_members = BTreeSet::new();
-    initial_members.insert(node_id);
+    let mut initial_members = BTreeMap::new();
+    initial_members.insert(node_id, BasicNode {addr: http_addr.clone()});
 
     let initialize = raft.initialize(initial_members).await;
     match initialize {

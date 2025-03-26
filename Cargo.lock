@@ -3920,6 +3920,7 @@ dependencies = [
  "moka",
  "openraft",
  "quick_cache",
+ "reqwest",
  "rocksdb",
  "rocksdb-raft",
  "serde",

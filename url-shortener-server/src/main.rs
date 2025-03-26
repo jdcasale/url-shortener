@@ -17,6 +17,7 @@ use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest};
 use crate::errors::ShortenerErr;
 use rocksdb_raft::rocksb_store::{LongUrlEntry, TypeConfig};
 use crate::params::Args;
+use reqwest;
 
 #[derive(Serialize, Deserialize)]
 struct Hello {}
@@ -31,9 +32,9 @@ struct LookupUrlResponse {
     location: String,
 }
 
-#[derive(Deserialize)]
-struct CreateShortUrlRequest<'a> {
-    long_url: &'a str,
+#[derive(Serialize, Deserialize)]
+struct CreateShortUrlRequest {
+    long_url: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -47,7 +48,8 @@ const APP_TYPE_JSON: &'static str = "application/json";
 #[post("/submit")]
 async fn create_short_url(
     request_json_bytes: web::Bytes,
-    shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
+    shared_state: web::Data<AppStateWithCounter>
+) -> impl Responder {
     let from_request_json: serde_json::Result<CreateShortUrlRequest> = serde_json::from_slice(
         &request_json_bytes
     );
@@ -58,7 +60,8 @@ async fn create_short_url(
 
     let req = from_request_json.expect("already checked for errors");
 
-    let maybe_url = validate_url(req.long_url);
+    let hash = calculate_hash(&req.long_url);
+    let maybe_url = validate_url(req.long_url.as_str());
     let url_str = match maybe_url {
         Ok(valid_url) => {
             valid_url.to_string()
@@ -68,16 +71,16 @@ async fn create_short_url(
         }
     };
 
-    let hash = calculate_hash(req.long_url);
-    let entry = LongUrlEntry::new(hash, url_str.clone(), 1u64);
+    let entry = LongUrlEntry::new(hash, url_str.clone(), shared_state.raft.id);
 
-    let resp = shared_state
+    // Try to submit the request to the current node
+    let result = shared_state
         .raft
         .raft
         .client_write(entry)
         .await;
 
-    match resp {
+    match result {
         Ok(raft_resp) => {
             tracing::info!("raft resp: {:?}", raft_resp);
             shared_state.long_url_lookup.insert(hash, url_str.clone());
@@ -87,8 +90,43 @@ async fn create_short_url(
                 .json(resp)
         }
         Err(e) => {
-            tracing::error!("Failed to write to raft: {:?}", e);
-            HttpResponse::InternalServerError().body("Failed to write to raft")
+            // If we got a ForwardToLeader error, forward the request to the leader
+            if let Some(forward_info) = e.forward_to_leader() {
+                if let Some(leader_id) = forward_info.leader_id {
+                    // Get the leader's HTTP address from the metrics
+                    let metrics = shared_state.raft.raft.metrics().borrow().clone();
+                    // Find the leader node in the membership config
+                    let mut nodes = metrics.membership_config.nodes();
+                    if let Some((_, leader_node)) = nodes.find(|(id, _)| **id == leader_id) {
+                        // Create a client to forward the request
+                        let client = reqwest::Client::new();
+                        let leader_url = format!("http://{}", leader_node.addr);
+                        
+                        // Forward the request to the leader
+                        match client.post(&format!("{}/submit", leader_url))
+                            .json(&req)
+                            .send()
+                            .await {
+                                Ok(resp) => {
+                                    if resp.status().is_success() {
+                                        HttpResponse::Ok().json(resp.json::<CreateShortUrlResponse>().await.unwrap())
+                                    } else {
+                                        HttpResponse::InternalServerError().body("Failed to forward request to leader")
+                                    }
+                                }
+                                Err(e) => {
+                                    HttpResponse::InternalServerError().body(format!("Failed to forward request: {}", e))
+                                }
+                            }
+                    } else {
+                        HttpResponse::InternalServerError().body("Leader node not found in membership")
+                    }
+                } else {
+                    HttpResponse::InternalServerError().body("Leader ID not found")
+                }
+            } else {
+                HttpResponse::InternalServerError().body("Not a ForwardToLeader error")
+            }
         }
     }
 }
@@ -184,7 +222,7 @@ async fn add_learner(
     let (node_id, rpc_addr) = req.into_inner();
     tracing::info!("Attempting to add learner - node_id: {}, rpc_addr: {}", node_id, rpc_addr);
 
-    let node = rocksdb_raft::network::callback_network_impl::Node {
+    let node = network::callback_network_impl::Node {
         addr: rpc_addr.clone(),
     };
 
