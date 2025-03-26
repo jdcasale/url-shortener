@@ -8,7 +8,7 @@ use tide::Response;
 use tide::StatusCode;
 
 use crate::app::App;
-use crate::network::no_op_network_impl::Node;
+use crate::network::callback_network_impl::Node;
 use crate::NodeId;
 use crate::Server;
 

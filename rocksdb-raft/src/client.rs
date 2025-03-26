@@ -12,7 +12,7 @@ use reqwest::Client;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
-use crate::network::no_op_network_impl::Node;
+use crate::network::callback_network_impl::Node;
 use crate::typ;
 use crate::NodeId;
 use crate::Request;

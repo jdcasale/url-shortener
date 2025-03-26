@@ -184,7 +184,7 @@ async fn add_learner(
     let (node_id, rpc_addr) = req.into_inner();
     tracing::info!("Attempting to add learner - node_id: {}, rpc_addr: {}", node_id, rpc_addr);
 
-    let node = rocksdb_raft::network::no_op_network_impl::Node {
+    let node = rocksdb_raft::network::callback_network_impl::Node {
         addr: rpc_addr.clone(),
     };
 
@@ -232,7 +232,7 @@ async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt::init();
 
     // Create your NoopRaftNetwork instance early on.
-    let mut raft_network = rocksdb_raft::network::no_op_network_impl::NoopRaftNetwork::new();
+    let mut raft_network = rocksdb_raft::network::callback_network_impl::CallbackRaftNetwork::new();
 
     // Create the Raft node (which uses the network)
     let raft_app = start_raft_node(
@@ -268,7 +268,7 @@ async fn main() -> std::io::Result<()> {
     let server_handle = actix_web::rt::spawn(server);
 
     // Now that the server is online (or being started), create the client handle.
-    let raft_client = network::mclient::RaftManagementClient::new(args.http_addr.clone());
+    let raft_client = network::management_rpc_client::RaftManagementRPCClient::new(args.http_addr.clone());
 
     // Inject the client callbacks into your network implementation.
     // For example, if NoopRaftNetwork has a setter:

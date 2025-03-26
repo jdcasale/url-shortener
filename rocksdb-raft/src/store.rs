@@ -35,7 +35,7 @@ use rocksdb::DB;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::RwLock;
-use crate::network::no_op_network_impl::Node;
+use crate::network::callback_network_impl::Node;
 use crate::typ;
 use crate::NodeId;
 use crate::rocksb_store::{LongUrlEntry, TypeConfig};

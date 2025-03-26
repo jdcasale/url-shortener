@@ -2,16 +2,16 @@ use openraft::raft::{AppendEntriesRequest, AppendEntriesResponse, InstallSnapsho
 use openraft::RaftMetrics;
 use openraft::error::{InstallSnapshotError, RaftError, RPCError, NetworkError};
 use crate::rocksb_store::TypeConfig;
-use crate::network::no_op_network_impl::{Node, NodeId};
+use crate::network::callback_network_impl::{Node, NodeId};
 use std::collections::BTreeSet;
 
 #[derive(Clone)]
-pub struct RaftManagementClient {
+pub struct RaftManagementRPCClient {
     base_url: String,
     client: reqwest::Client,
 }
 
-impl RaftManagementClient {
+impl RaftManagementRPCClient {
     pub fn new(base_url: String) -> Self {
         Self {
             base_url,

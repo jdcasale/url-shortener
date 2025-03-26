@@ -3,28 +3,28 @@ use openraft::raft::{AppendEntriesRequest, AppendEntriesResponse, InstallSnapsho
 use openraft::{RaftNetwork, Vote, LeaderId, RaftTypeConfig, RaftNetworkFactory};
 use openraft::error::{InstallSnapshotError, RaftError, RPCError};
 use openraft::network::RPCOption;
-use crate::network::mclient::RaftManagementClient;
+use crate::network::management_rpc_client::RaftManagementRPCClient;
 use crate::rocksb_store::{TypeConfig};
 
 #[derive(Clone)]
-pub struct NoopRaftNetwork {
-    callbacks: Option<RaftManagementClient>
+pub struct CallbackRaftNetwork {
+    callbacks: Option<RaftManagementRPCClient>
 }
 
-impl NoopRaftNetwork {
-    pub fn new() -> NoopRaftNetwork {
-        NoopRaftNetwork { callbacks: None }
+impl CallbackRaftNetwork {
+    pub fn new() -> CallbackRaftNetwork {
+        CallbackRaftNetwork { callbacks: None }
     }
 
-    pub fn set_callbacks(&mut self, callbacks: RaftManagementClient) {
+    pub fn set_callbacks(&mut self, callbacks: RaftManagementRPCClient) {
         self.callbacks = Some(callbacks);
     }
 
     // Create a new network instance for a specific target node
     pub fn for_target(node: &Node) -> Self {
         let base_url = format!("http://{}", node.addr);
-        let client = RaftManagementClient::new(base_url);
-        NoopRaftNetwork {
+        let client = RaftManagementRPCClient::new(base_url);
+        CallbackRaftNetwork {
             callbacks: Some(client)
         }
     }
@@ -34,7 +34,7 @@ pub type NodeId = <TypeConfig as RaftTypeConfig>::NodeId;
 pub type Node = <TypeConfig as RaftTypeConfig>::Node;
 pub type EntryBruv = <TypeConfig as RaftTypeConfig>::Entry;
 
-impl RaftNetwork<TypeConfig> for Arc<NoopRaftNetwork> {
+impl RaftNetwork<TypeConfig> for Arc<CallbackRaftNetwork> {
     async fn append_entries(
         &mut self,
         rpc: AppendEntriesRequest<TypeConfig>,
@@ -87,53 +87,12 @@ impl RaftNetwork<TypeConfig> for Arc<NoopRaftNetwork> {
     }
 }
 
-impl RaftNetworkFactory<TypeConfig> for Arc<NoopRaftNetwork> {
-    type Network = Arc<NoopRaftNetwork>;
+impl RaftNetworkFactory<TypeConfig> for Arc<CallbackRaftNetwork> {
+    type Network = Arc<CallbackRaftNetwork>;
 
     async fn new_client(&mut self, _target: NodeId, node: &Node) -> Self::Network {
-        Arc::new(NoopRaftNetwork::for_target(node))
+        Arc::new(CallbackRaftNetwork::for_target(node))
     }
 }
 
-mod test {
-    
-    
-    
-    
-    
-
-    #[tokio::test]
-    async fn test_basic_raft_operations() {
-        // let node_id = 1u64;
-        // let config = Arc::new(Config::default());
-        // let (db_app, state_machine_store) = RocksApp::new("rocksdb.db");
-        // let raft = Raft::<TypeConfig>::new(
-        //     node_id,
-        //     config,
-        //     Arc::new(NoopRaftNetwork),
-        //     db_app,
-        //     state_machine_store.await.unwrap()
-        // );
-        //
-        // // Create a log entry
-        // let entry = LongUrlEntry::new(
-        //     123412,
-        //     "value1".to_string(),
-        //     1
-        // );
-        //
-        // // Simulate appending an entry to the log
-        // raft.await.unwrap().append_entries(AppendEntriesRequest {
-        //
-        //     // Fill in with appropriate details
-        //     vote: Default::default(),
-        //     prev_log_id: None,
-        //     entries: vec![entry],
-        //     leader_commit: None,
-        // }).await.unwrap();
-        //
-        // // Check that the entry was applied to RocksDB
-        // // let stored_value = raft.await.unwrap().get_entry("key1").await.unwrap();
-        // // assert_eq!(stored_value, Some("value1".to_string()));
-    }
-}
+mod test {}
