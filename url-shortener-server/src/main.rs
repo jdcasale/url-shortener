@@ -107,8 +107,6 @@ async fn forward_request_to_leader(
         match client.post(&forward_endpoint).json(req).send().await {
             Ok(resp) => {
                 if resp.status().is_success() {
-                    // Unwrap is preserved to match original behavior.
-                    // HttpResponse::Ok().json(resp.json::<CreateShortUrlResponse>().await.unwrap())
                     match resp.json::<CreateShortUrlResponse>().await {
                         Ok(json) => {
                             HttpResponse::Ok().content_type(APP_TYPE_JSON).json(json)
