@@ -12,7 +12,8 @@ use actix_web::http::header;
 use clap::Parser;
 use web::Json;
 use rocksdb_raft::{network, start_raft_node};
-use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest};
+use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest, VoteRequest};
+use tracing::Level;
 use crate::errors::ShortenerErr;
 use rocksdb_raft::rocksb_store::{LongUrlEntry, TypeConfig};
 use crate::params::Args;
@@ -83,6 +84,7 @@ async fn create_short_url(
                 if let Some(leader_id) = forward_info.leader_id {
                     return forward_request_to_leader(&req, &shared_state, leader_id).await;
                 } else {
+                    tracing::error!("{}", format!("{:?}", forward_info));
                     return HttpResponse::InternalServerError().body("Leader ID not found");
                 }
             }
@@ -211,6 +213,14 @@ async fn install_snapshot(req: Json<InstallSnapshotRequest<TypeConfig>>,
         .map(|resp| HttpResponse::Ok().json(resp))
 }
 
+#[post("/raft/vote")]
+async fn vote(req: Json<VoteRequest<u64>>, shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
+    shared_state.raft.raft.vote(req.0)
+        .await
+        .map_err(ShortenerErr::RaftError)
+        .map(|resp| HttpResponse::Ok().json(resp))
+}
+
 #[post("/cluster/add-learner")]
 async fn add_learner(
     req: web::Json<(u64, String)>,
@@ -264,7 +274,7 @@ async fn change_membership(
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let args = Args::parse();
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt().with_max_level(Level::ERROR).init();
 
     // Create your NoopRaftNetwork instance early on.
     let mut raft_network = rocksdb_raft::network::callback_network_impl::CallbackRaftNetwork::new();
@@ -293,6 +303,7 @@ async fn main() -> std::io::Result<()> {
             .service(redirect)
             .service(append_entries)
             .service(install_snapshot)
+            .service(vote)
             .service(add_learner)
             .service(change_membership)
     })
