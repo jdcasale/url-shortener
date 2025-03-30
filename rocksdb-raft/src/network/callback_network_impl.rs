@@ -11,6 +11,12 @@ pub struct CallbackRaftNetwork {
     callbacks: Option<RaftManagementRPCClient>
 }
 
+impl Default for CallbackRaftNetwork {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CallbackRaftNetwork {
     pub fn new() -> CallbackRaftNetwork {
         CallbackRaftNetwork { callbacks: None }

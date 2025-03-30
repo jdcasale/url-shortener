@@ -10,14 +10,13 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use actix_web::http::header;
 use clap::Parser;
-use url::Url;
 use web::Json;
 use rocksdb_raft::{network, start_raft_node};
 use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest};
 use crate::errors::ShortenerErr;
 use rocksdb_raft::rocksb_store::{LongUrlEntry, TypeConfig};
 use crate::params::Args;
-use reqwest;
+use validator::Validate;
 
 #[derive(Serialize, Deserialize)]
 struct Hello {}
@@ -32,8 +31,9 @@ struct LookupUrlResponse {
     location: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Validate)]
 struct CreateShortUrlRequest {
+    #[validate(url)]
     long_url: String,
 }
 
@@ -43,93 +43,90 @@ struct CreateShortUrlResponse {
 }
 
 
-const APP_TYPE_JSON: &'static str = "application/json";
+const APP_TYPE_JSON: &str = "application/json";
 
 #[post("/submit")]
 async fn create_short_url(
     request_json_bytes: web::Bytes,
-    shared_state: web::Data<AppStateWithCounter>
+    shared_state: web::Data<AppStateWithCounter>,
 ) -> impl Responder {
-    let from_request_json: serde_json::Result<CreateShortUrlRequest> = serde_json::from_slice(
-        &request_json_bytes
-    );
-
-    if let Err(parse_err) = from_request_json {
-        return HttpResponse::from_error(parse_err);
+    // Parse the incoming JSON.
+    let req: CreateShortUrlRequest = match serde_json::from_slice(&request_json_bytes) {
+        Ok(req) => req,
+        Err(parse_err) => return HttpResponse::from_error(parse_err),
     };
 
-    let req = from_request_json.expect("already checked for errors");
-
+    // Compute hash and validate URL.
     let hash = calculate_hash(&req.long_url);
-    let maybe_url = validate_url(req.long_url.as_str());
-    let url_str = match maybe_url {
-        Ok(valid_url) => {
-            valid_url.to_string()
-        }
-        Err(url_err) => {
-            return HttpResponse::from_error(url_err)
+    let url_str = match req.validate() {
+        Ok(_) => req.long_url.to_string(),
+        Err(validation_err) => {
+            return HttpResponse::BadRequest().json(validation_err)
         }
     };
 
+    // Construct the Raft entry.
     let entry = LongUrlEntry::new(hash, url_str.clone(), shared_state.raft.id);
-
-    // Try to submit the request to the current node
-    let result = shared_state
-        .raft
-        .raft
-        .client_write(entry)
-        .await;
-
-    match result {
+    tracing::info!("Creating");
+    // Submit the entry to Raft.
+    match shared_state.raft.raft.client_write(entry).await {
         Ok(raft_resp) => {
             tracing::info!("raft resp: {:?}", raft_resp);
-            shared_state.long_url_lookup.insert(hash, url_str.clone());
-            let resp = CreateShortUrlResponse{short_url: format!("{:x}", hash)};
-            HttpResponse::Ok()
-                .content_type(APP_TYPE_JSON)
-                .json(resp)
+            shared_state.long_url_lookup.insert(hash, url_str);
+            let resp = CreateShortUrlResponse { short_url: format!("{:x}", hash) };
+            HttpResponse::Ok().content_type(APP_TYPE_JSON).json(resp)
         }
         Err(e) => {
-            // If we got a ForwardToLeader error, forward the request to the leader
+            tracing::info!("Forwarding to leader");
+            // If a forward-to-leader error exists, forward the request.
             if let Some(forward_info) = e.forward_to_leader() {
                 if let Some(leader_id) = forward_info.leader_id {
-                    // Get the leader's HTTP address from the metrics
-                    let metrics = shared_state.raft.raft.metrics().borrow().clone();
-                    // Find the leader node in the membership config
-                    let mut nodes = metrics.membership_config.nodes();
-                    if let Some((_, leader_node)) = nodes.find(|(id, _)| **id == leader_id) {
-                        // Create a client to forward the request
-                        let client = reqwest::Client::new();
-                        let leader_url = format!("http://{}", leader_node.addr);
-                        
-                        // Forward the request to the leader
-                        match client.post(&format!("{}/submit", leader_url))
-                            .json(&req)
-                            .send()
-                            .await {
-                                Ok(resp) => {
-                                    if resp.status().is_success() {
-                                        HttpResponse::Ok().json(resp.json::<CreateShortUrlResponse>().await.unwrap())
-                                    } else {
-                                        HttpResponse::InternalServerError().body("Failed to forward request to leader")
-                                    }
-                                }
-                                Err(e) => {
-                                    HttpResponse::InternalServerError().body(format!("Failed to forward request: {}", e))
-                                }
-                            }
-                    } else {
-                        HttpResponse::InternalServerError().body("Leader node not found in membership")
-                    }
+                    return forward_request_to_leader(&req, &shared_state, leader_id).await;
                 } else {
-                    HttpResponse::InternalServerError().body("Leader ID not found")
+                    return HttpResponse::InternalServerError().body("Leader ID not found");
                 }
-            } else {
-                HttpResponse::InternalServerError().body("Not a ForwardToLeader error")
             }
+            HttpResponse::InternalServerError().body("Not a ForwardToLeader error")
         }
     }
 }
+
+/// Forwards the original request to the leader node and returns its response.
+async fn forward_request_to_leader(
+    req: &CreateShortUrlRequest,
+    shared_state: &web::Data<AppStateWithCounter>,
+    leader_id: u64,
+) -> HttpResponse {
+    // Retrieve the leader's address from the membership metrics.
+    let metrics = shared_state.raft.raft.metrics().borrow().clone();
+    let mut nodes = metrics.membership_config.nodes();
+    if let Some((_, leader_node)) = nodes.find(|(id, _)| **id == leader_id) {
+        let client = reqwest::Client::new();
+        let leader_url = format!("http://{}", leader_node.addr);
+        let forward_endpoint = format!("{}/submit", leader_url);
+        match client.post(&forward_endpoint).json(req).send().await {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    match resp.json::<CreateShortUrlResponse>().await {
+                        Ok(json) => {
+                            HttpResponse::Ok().content_type(APP_TYPE_JSON).json(json)
+                        }
+                        Err(e) => {
+                            HttpResponse::InternalServerError().body(format!("Failed to forward request to leader: {}", e))
+                        }
+                    }
+
+                } else {
+                    HttpResponse::InternalServerError().body("Failed to forward request to leader")
+                }
+            }
+            Err(e) => HttpResponse::InternalServerError().body(format!("Failed to forward request: {}", e)),
+        }
+    } else {
+        HttpResponse::InternalServerError().body("Leader node not found in membership")
+    }
+}
+
 
 
 #[get("/lookup/{hash}")]
@@ -322,22 +319,4 @@ fn calculate_hash(t: &str) -> u64 {
     let mut s = DefaultHasher::new();
     t.hash(&mut s);
     s.finish()
-}
-
-// TODO(@jdcasale): obv use a real library for this
-fn validate_url(url: &str) -> Result<Url, ShortenerErr> {
-    let abs_url = if !url.starts_with("http://") && !url.starts_with("https://"){
-        format!("https://{url}")
-    } else {
-        url.to_string()
-    };
-    match Url::parse(&abs_url) {
-        Ok(parsed_url) => {
-            // Additional checks can be added here if needed
-            Ok(parsed_url)
-        }
-        Err(e) => {
-            Err(ShortenerErr::UrlParseError(e))
-        }
-    }
 }
