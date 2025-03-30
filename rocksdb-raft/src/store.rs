@@ -222,15 +222,25 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
                 EntryPayload::Blank => {
                     replies.push(Response { value: None, short_url: None });
                 }
-                EntryPayload::Normal(req) => match req {
-                    LongUrlEntry { hash, url, .. } => {
-                        st.insert(hash.clone(), url);
-                        replies.push(Response { 
-                            value: None, 
-                            short_url: Some(hash.to_string())
-                        });
-                    }
-                },
+                // EntryPayload::Normal(req) => match req {
+                //     LongUrlEntry { hash, url, .. } => {
+                //         st.insert(hash.clone(), url);
+                //         replies.push(Response {
+                //             value: None,
+                //             short_url: Some(hash.to_string())
+                //         });
+                //     }
+                // },
+                EntryPayload::Normal(req) => {
+                     let LongUrlEntry { hash, url, .. } = req;
+                     {
+                         st.insert(hash.clone(), url);
+                         replies.push(Response {
+                             value: None,
+                             short_url: Some(hash.to_string())
+                         });
+                     }
+                 },
                 EntryPayload::Membership(mem) => {
                     self.data.last_membership = StoredMembership::new(Some(ent.log_id), mem);
                     replies.push(Response { value: None, short_url: None });
