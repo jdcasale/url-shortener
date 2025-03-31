@@ -280,3 +280,99 @@ impl RaftLogStorage<TypeConfig> for LogStore {
         self.clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+    use openraft::CommittedLeaderId;
+    use openraft::LogId;
+    use openraft::Vote;
+    use rocksdb::{ColumnFamilyDescriptor, Options};
+
+    async fn setup_test_db() -> (LogStore, PathBuf) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().to_path_buf();
+        
+        let mut db_opts = Options::default();
+        db_opts.create_missing_column_families(true);
+        db_opts.create_if_missing(true);
+
+        let store = ColumnFamilyDescriptor::new("store", Options::default());
+        let logs = ColumnFamilyDescriptor::new("logs", Options::default());
+
+        let db = DB::open_cf_descriptors(&db_opts, &db_path, vec![store, logs]).unwrap();
+        let db = Arc::new(db);
+        
+        (LogStore { db }, db_path)
+    }
+
+    #[tokio::test]
+    async fn test_log_state() {
+        let (mut store, _) = setup_test_db().await;
+
+        // Initially, log state should be empty
+        let state = store.get_log_state().await.unwrap();
+        assert!(state.last_log_id.is_none());
+        assert!(state.last_purged_log_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_vote_storage() {
+        let (mut store, _) = setup_test_db().await;
+
+        // Initially, no vote should be stored
+        let vote = store.read_vote().await.unwrap();
+        assert!(vote.is_none());
+
+        // Save a vote
+        let test_vote = Vote::new(1, 1);
+        store.save_vote(&test_vote).await.unwrap();
+
+        // Read the vote back
+        let vote = store.read_vote().await.unwrap();
+        assert_eq!(vote.unwrap(), test_vote);
+    }
+
+    #[tokio::test]
+    async fn test_committed_log() {
+        let (mut store, _) = setup_test_db().await;
+
+        // Initially, no committed log should be stored
+        let committed = store.read_committed().await.unwrap();
+        assert!(committed.is_none());
+
+        // Save a committed log ID
+        let committed_id = LogId::new(CommittedLeaderId::new(1u64, 1), 1);
+        store.save_committed(Some(committed_id)).await.unwrap();
+
+        // Read the committed log ID back
+        let committed = store.read_committed().await.unwrap();
+        assert_eq!(committed.unwrap(), committed_id);
+    }
+
+    #[tokio::test]
+    async fn test_log_purge() {
+        let (mut store, _) = setup_test_db().await;
+
+        // Purge logs up to index 2
+        store.purge(LogId::new(CommittedLeaderId::new(1u64, 1), 2)).await.unwrap();
+
+        // Check last purged log ID
+        let state = store.get_log_state().await.unwrap();
+        assert_eq!(state.last_purged_log_id.unwrap().index, 2);
+    }
+
+    #[tokio::test]
+    async fn test_log_truncate() {
+        let (mut store, _) = setup_test_db().await;
+
+        // Truncate at index 2
+        store.truncate(LogId::new(CommittedLeaderId::new(1u64, 1), 2)).await.unwrap();
+
+        // Check that no entries remain
+        let entries = store.try_get_log_entries(0..4).await.unwrap();
+        assert_eq!(entries.len(), 0);
+    }
+}
