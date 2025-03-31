@@ -60,10 +60,10 @@ pub async fn start_example_raft_node<P>(
 {
     // Create a configuration for the raft instance.
     let config = Config {
-        heartbeat_interval: 1000,
-        election_timeout_min: 2000,
-        election_timeout_max: 4000,
-        max_payload_entries: 10000,
+        heartbeat_interval: 250,
+        election_timeout_min: 500,
+        election_timeout_max: 1500,
+        max_payload_entries: 100,
 
         ..Default::default()
     };
@@ -127,10 +127,10 @@ where
 {
     // Create a configuration for the raft instance.
     let config = Config {
-        heartbeat_interval: 1000,
-        election_timeout_min: 2000,
-        election_timeout_max: 4000,
-        max_payload_entries: 1000,
+        heartbeat_interval: 250,
+        election_timeout_min: 500,
+        election_timeout_max: 1500,
+        max_payload_entries: 100,
         ..Default::default()
     };
 

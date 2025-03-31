@@ -88,7 +88,7 @@ async fn create_short_url(
 
     // Construct the Raft entry.
     let entry = LongUrlEntry::new(hash, url_str.clone(), shared_state.raft.id);
-    tracing::info!("Creating");
+    tracing::debug!("Creating");
     // Submit the entry to Raft.
 
     match get_leader_info(&shared_state).await {
@@ -103,7 +103,7 @@ async fn create_short_url(
             }
         }
         Err(e) => {
-            tracing::error!("Failed to look up leader: {}", e);
+            tracing::info!("Failed to look up leader: {}", e);
             HttpResponse::InternalServerError().body("Could not look up leader")
         }
     }
@@ -113,16 +113,16 @@ async fn create_short_url(
 async fn write_entry_to_raft(shared_state: &Data<AppStateWithCounter>, req: &CreateShortUrlRequest, hash: u64, url_str: String, entry: LongUrlEntry) -> Result<HttpResponse, HttpResponse> {
     Ok(match shared_state.raft.raft.client_write(entry).await {
         Ok(raft_resp) => {
-            tracing::info!("raft resp: {:?}", raft_resp);
+            tracing::debug!("raft resp: {:?}", raft_resp);
             shared_state.long_url_lookup.insert(hash, url_str);
             let resp = CreateShortUrlResponse { short_url: format!("{:x}", hash) };
             HttpResponse::Ok().content_type(APP_TYPE_JSON).json(resp)
         }
         Err(e) => {
-            tracing::info!("Forwarding to leader");
+            tracing::debug!("Forwarding to leader");
             // If a forward-to-leader error exists, forward the request.
             if let Some(_forward_info) = e.forward_to_leader() {
-                return Ok(forward_request_to_leader(&req, &shared_state).await);
+                return Ok(forward_request_to_leader(req, shared_state).await);
             } else {
                 HttpResponse::InternalServerError().body("Not a ForwardToLeader error")
             }
@@ -319,7 +319,7 @@ async fn change_membership(
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let args = Args::parse();
-    tracing_subscriber::fmt().with_max_level(Level::ERROR).init();
+    tracing_subscriber::fmt().with_max_level(Level::WARN).init();
 
     // Create your NoopRaftNetwork instance early on.
     let mut raft_network = rocksdb_raft::network::callback_network_impl::CallbackRaftNetwork::new();
@@ -334,13 +334,14 @@ async fn main() -> std::io::Result<()> {
         .await;
 
     let cache = web::Data::new(AppStateWithCounter {
-        long_url_lookup: Cache::new(100_000_000),
+        long_url_lookup: Cache::new(1_000_000),
         raft: raft_app,
     });
 
     // Spawn the HTTP server in a background task.
     let server = HttpServer::new(move || {
         App::new()
+            .app_data(web::JsonConfig::default().limit(100 * 1024 * 1024)) // Set payload limit to 10 MB
             .app_data(cache.clone())
             .service(create_short_url)
             .service(lookup_url)

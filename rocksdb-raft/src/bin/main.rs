@@ -23,7 +23,7 @@ async fn main() -> std::io::Result<()> {
         .with_target(true)
         .with_thread_ids(true)
         .with_level(true)
-        .with_max_level(Level::ERROR)
+        .with_max_level(Level::INFO)
         .with_ansi(false)
         .with_env_filter(EnvFilter::from_default_env())
         .init();

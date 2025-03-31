@@ -21,6 +21,8 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
+    mem_limit: 12g
+
 
   url-shortener-2:
     build:
@@ -45,6 +47,7 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
+    mem_limit: 12g
 
   url-shortener-3:
     build:
@@ -71,6 +74,7 @@ services:
       timeout: 3s
       retries: 10
       start_period: 5s
+    mem_limit: 12g
 
   init-cluster:
     build:
