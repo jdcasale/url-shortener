@@ -15,7 +15,7 @@ use serde::Serialize;
 use crate::network::callback_network_impl::Node;
 use crate::typ;
 use crate::NodeId;
-use crate::Request;
+use crate::store::store::RaftRequest;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Empty {}
@@ -46,7 +46,7 @@ impl ExampleClient {
     /// will be applied to state machine.
     ///
     /// The result of applying the request will be returned.
-    pub async fn write(&self, req: &Request) -> Result<typ::ClientWriteResponse, typ::RPCError<typ::ClientWriteError>> {
+    pub async fn write(&self, req: &RaftRequest) -> Result<typ::ClientWriteResponse, typ::RPCError<typ::ClientWriteError>> {
         self.send_rpc_to_leader("api/write", Some(req)).await
     }
 

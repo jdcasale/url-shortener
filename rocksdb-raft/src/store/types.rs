@@ -3,7 +3,7 @@ use std::io::Cursor;
 use openraft::{BasicNode, Entry, RaftTypeConfig, TokioRuntime};
 use openraft::impls::OneshotResponder;
 use serde::{Deserialize, Serialize};
-use crate::store::Response;
+use crate::store::store::RaftResponse;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LongUrlEntry {
@@ -24,7 +24,7 @@ pub struct TypeConfig;
 
 impl RaftTypeConfig for TypeConfig {
     type D = LongUrlEntry;
-    type R = Response;
+    type R = RaftResponse;
     type NodeId = u64;
     type Node = BasicNode;
     type Entry = Entry<Self>;

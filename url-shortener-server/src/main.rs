@@ -17,7 +17,7 @@ use rocksdb_raft::{network, start_raft_node};
 use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest, VoteRequest};
 use tracing::Level;
 use crate::errors::ShortenerErr;
-use rocksdb_raft::rocksb_store::{LongUrlEntry, TypeConfig};
+use rocksdb_raft::store::types::{LongUrlEntry, TypeConfig};
 use crate::params::Args;
 use validator::Validate;
 use rocksdb_raft::network::callback_network_impl::{Node, NodeId};

@@ -4,7 +4,7 @@ use openraft::{RaftNetwork, Vote, LeaderId, RaftTypeConfig, RaftNetworkFactory};
 use openraft::error::{InstallSnapshotError, RaftError, RPCError};
 use openraft::network::RPCOption;
 use crate::network::management_rpc_client::RaftManagementRPCClient;
-use crate::rocksb_store::{TypeConfig};
+use crate::store::types::{TypeConfig};
 
 #[derive(Clone)]
 pub struct CallbackRaftNetwork {
