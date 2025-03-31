@@ -7,7 +7,7 @@ use rocksdb::{ColumnFamily, DB};
 use tokio::sync::RwLock;
 use crate::network::callback_network_impl::{Node, NodeId};
 use crate::store::types::{LongUrlEntry, TypeConfig};
-use crate::store::store::{RaftResponse, StoredSnapshot};
+use crate::store::storage::{RaftResponse, StoredSnapshot};
 use crate::{typ, SnapshotData};
 use crate::store::log_storage::StorageResult;
 
@@ -227,5 +227,123 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
             meta: s.meta.clone(),
             snapshot: Box::new(Cursor::new(s.data.clone())),
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+    use openraft::{Entry, EntryPayload};
+    use openraft::LogId;
+    use openraft::CommittedLeaderId;
+    use rocksdb::{ColumnFamilyDescriptor, Options};
+    use crate::store::types::LongUrlEntry;
+
+    async fn setup_test_db() -> (StateMachineStore, PathBuf) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().to_path_buf();
+        
+        let mut db_opts = Options::default();
+        db_opts.create_missing_column_families(true);
+        db_opts.create_if_missing(true);
+
+        let store = ColumnFamilyDescriptor::new("store", Options::default());
+        let logs = ColumnFamilyDescriptor::new("logs", Options::default());
+
+        let db = DB::open_cf_descriptors(&db_opts, &db_path, vec![store, logs]).unwrap();
+        let db = Arc::new(db);
+        
+        (StateMachineStore::new(db).await.unwrap(), db_path)
+    }
+
+    #[tokio::test]
+    async fn test_initial_state() {
+        let (mut store, _) = setup_test_db().await;
+
+        // Check initial state
+        let (last_applied, membership) = store.applied_state().await.unwrap();
+        assert!(last_applied.is_none());
+        assert_eq!(membership.membership().nodes().count(), 0);
+        assert!(membership.log_id().iter().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_apply_blank_entry() {
+        let (mut store, _) = setup_test_db().await;
+
+        // Create a blank entry
+        let entry = Entry {
+            log_id: LogId::new(CommittedLeaderId::new(1u64, 1), 1),
+            payload: EntryPayload::Blank,
+        };
+
+        // Apply the entry
+        let responses = store.apply(vec![entry]).await.unwrap();
+        assert_eq!(responses.len(), 1);
+        assert!(responses[0].value.is_none());
+        assert!(responses[0].short_url.is_none());
+
+        // Check state after applying
+        let (last_applied, _) = store.applied_state().await.unwrap();
+        assert_eq!(last_applied.unwrap().index, 1);
+    }
+
+    #[tokio::test]
+    async fn test_apply_normal_entry() {
+        let (mut store, _) = setup_test_db().await;
+
+        // Create a normal entry with a URL
+        let entry = Entry {
+            log_id: LogId::new(CommittedLeaderId::new(1u64, 1), 1),
+            payload: EntryPayload::Normal(LongUrlEntry::new(123, "http://example.com".to_string(), 1)),
+        };
+
+        // Apply the entry
+        let responses = store.apply(vec![entry]).await.unwrap();
+        assert_eq!(responses.len(), 1);
+        assert!(responses[0].value.is_none());
+        assert_eq!(responses[0].short_url.clone().unwrap(), "123");
+
+        // Check state after applying
+        let (last_applied, _) = store.applied_state().await.unwrap();
+        assert_eq!(last_applied.unwrap().index, 1);
+
+        // Check that the URL was stored
+        let kvs = store.data.kvs.read().await;
+        assert_eq!(kvs.get("123").unwrap(), "http://example.com");
+    }
+
+    #[tokio::test]
+    async fn test_apply_multiple_entries() {
+        let (mut store, _) = setup_test_db().await;
+
+        // Create multiple entries
+        let entries = vec![
+            Entry {
+                log_id: LogId::new(CommittedLeaderId::new(1u64, 1), 1),
+                payload: EntryPayload::Normal(LongUrlEntry::new(123, "http://example.com".to_string(), 1)),
+            },
+            Entry {
+                log_id: LogId::new(CommittedLeaderId::new(1u64, 1), 2),
+                payload: EntryPayload::Normal(LongUrlEntry::new(456, "http://example.org".to_string(), 1)),
+            },
+        ];
+
+        // Apply the entries
+        let responses = store.apply(entries).await.unwrap();
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0].short_url.clone().unwrap(), "123");
+        assert_eq!(responses[1].short_url.clone().unwrap(), "456");
+
+        // Check state after applying
+        let (last_applied, _) = store.applied_state().await.unwrap();
+        assert_eq!(last_applied.unwrap().index, 2);
+
+        // Check that both URLs were stored
+        let kvs = store.data.kvs.read().await;
+        assert_eq!(kvs.get("123").unwrap(), "http://example.com");
+        assert_eq!(kvs.get("456").unwrap(), "http://example.org");
     }
 }
