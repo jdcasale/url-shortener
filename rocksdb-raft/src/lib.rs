@@ -61,8 +61,9 @@ pub async fn start_example_raft_node<P>(
     // Create a configuration for the raft instance.
     let config = Config {
         heartbeat_interval: 1000,
-        election_timeout_min: 299,
-        max_payload_entries: 1000,
+        election_timeout_min: 2000,
+        election_timeout_max: 4000,
+        max_payload_entries: 10000,
 
         ..Default::default()
     };
@@ -126,8 +127,10 @@ where
 {
     // Create a configuration for the raft instance.
     let config = Config {
-        heartbeat_interval: 250,
-        election_timeout_min: 299,
+        heartbeat_interval: 1000,
+        election_timeout_min: 2000,
+        election_timeout_max: 4000,
+        max_payload_entries: 1000,
         ..Default::default()
     };
 
@@ -136,9 +139,6 @@ where
     let (log_store, state_machine_store) = new_storage(&dir).await;
 
     let kvs = state_machine_store.data.kvs.clone();
-
-    // Create the network layer that will connect and communicate the raft instances and
-    // will be used in conjunction with the store created above.
 
     // Create a local raft instance.
     let raft = openraft::Raft::new(node_id, config.clone(), network, log_store, state_machine_store).await.unwrap();
