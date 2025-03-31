@@ -11,10 +11,6 @@ authors = [
     "The Tremor Team",
 ]
 
-[[bin]]
-name = "raft-key-value-rocks"
-path = "src/bin/main.rs"
-
 [dependencies]
 openraft = { version = "0.9.13", features = ["serde", "storage-v2"] }
 

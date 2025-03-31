@@ -1,7 +1,7 @@
 use openraft::raft::{AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse, VoteRequest, VoteResponse};
 use openraft::RaftMetrics;
 use openraft::error::{InstallSnapshotError, RaftError, RPCError, NetworkError};
-use crate::rocksb_store::TypeConfig;
+use crate::store::types::TypeConfig;
 use crate::network::callback_network_impl::{Node, NodeId};
 use std::collections::BTreeSet;
 

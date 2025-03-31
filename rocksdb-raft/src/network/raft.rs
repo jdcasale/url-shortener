@@ -9,7 +9,7 @@ use openraft::raft::VoteResponse;
 use toy_rpc::macros::export_impl;
 
 use crate::app::App;
-use crate::rocksb_store::TypeConfig;
+use crate::store::types::TypeConfig;
 
 /// Raft protocol service.
 pub struct Raft {
