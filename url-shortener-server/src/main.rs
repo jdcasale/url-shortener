@@ -3,7 +3,7 @@ extern crate core;
 mod errors;
 mod params;
 
-use actix_web::{post, web, App, HttpResponse, HttpServer, Responder, get, Error};
+use actix_web::{post, web, App, HttpResponse, HttpServer, Responder, get};
 use quick_cache::sync::{Cache};
 use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -55,11 +55,12 @@ async fn get_leader_info(shared_state: &web::Data<AppStateWithCounter>,) -> Resu
         actix_web::error::ErrorInternalServerError("No leader elected yet")
     })?;
 
-    let leader_node = metrics.membership_config.nodes().get(&leader_id)
+    let leader_node = metrics.membership_config.nodes()
+        .find(|(id, _)| **id == leader_id)
+        .map(|(_, node)| node.clone())
         .ok_or_else(|| {
             actix_web::error::ErrorInternalServerError(format!("Leader node {} not found in membership", leader_id))
-        })?
-        .clone();
+        })?;
 
     Ok((leader_id, leader_node))
 }
@@ -90,28 +91,26 @@ async fn create_short_url(
     tracing::info!("Creating");
     // Submit the entry to Raft.
 
-    let maybe_is_leader = match get_leader_info(&shared_state).await {
+    match get_leader_info(&shared_state).await {
         Ok((leader_id, leader)) => {
             if shared_state.raft.id == leader_id {
                 // try to write the entry -- write_entry_to_raft still handles races internally,
                 // but we don't expect them so we're good to action the write
-                match write_entry_to_raft(&shared_state, &req, hash, url_str, entry).await {
-                    Ok(value) => value,
-                    Err(value) => value,
-                }
+                write_entry_to_raft(&shared_state, &req, hash, url_str, entry).await.unwrap_or_else(|value| value)
             } else {
                 // forward to the node we currently think is leader
-                forward_request_to_leader(&req, &shared_state, leader_id).await
+                forward_request_to_target(&req, leader).await
             }
-        },
+        }
         Err(e) => {
+            tracing::error!("Failed to look up leader: {}", e);
             HttpResponse::InternalServerError().body("Could not look up leader")
         }
-    };
+    }
 
 }
 
-async fn write_entry_to_raft(shared_state: &Data<AppStateWithCounter>, req: &CreateShortUrlRequest, hash: u64, url_str: String, entry: LongUrlEntry) -> Result<impl Responder<Body=_> + Sized, impl Responder<Body=_> + Sized> {
+async fn write_entry_to_raft(shared_state: &Data<AppStateWithCounter>, req: &CreateShortUrlRequest, hash: u64, url_str: String, entry: LongUrlEntry) -> Result<HttpResponse, HttpResponse> {
     Ok(match shared_state.raft.raft.client_write(entry).await {
         Ok(raft_resp) => {
             tracing::info!("raft resp: {:?}", raft_resp);
@@ -122,52 +121,56 @@ async fn write_entry_to_raft(shared_state: &Data<AppStateWithCounter>, req: &Cre
         Err(e) => {
             tracing::info!("Forwarding to leader");
             // If a forward-to-leader error exists, forward the request.
-            if let Some(forward_info) = e.forward_to_leader() {
-                if let Some(leader_id) = forward_info.leader_id {
-                    return Ok(forward_request_to_leader(&req, &shared_state, leader_id).await);
-                } else {
-                    tracing::error!("{}", format!("{:?}", forward_info));
-                    return Err(HttpResponse::InternalServerError().body("Leader ID not found"));
-                }
+            if let Some(_forward_info) = e.forward_to_leader() {
+                return Ok(forward_request_to_leader(&req, &shared_state).await);
+            } else {
+                HttpResponse::InternalServerError().body("Not a ForwardToLeader error")
             }
-            HttpResponse::InternalServerError().body("Not a ForwardToLeader error")
         }
     })
 }
 
-/// Forwards the original request to the leader node and returns its response.
 async fn forward_request_to_leader(
     req: &CreateShortUrlRequest,
-    shared_state: &web::Data<AppStateWithCounter>,
-    leader_id: u64,
+    shared_state: &Data<AppStateWithCounter>,
+) -> HttpResponse {
+    match get_leader_info(shared_state).await {
+        Ok((_leader_id, leader)) => {
+            forward_request_to_target(req, leader).await
+        }
+        Err(e) => {
+            HttpResponse::InternalServerError().body(format!("Failed to forward request: {}", e))
+        }
+    }
+}
+
+
+/// Forwards the original request to the leader node and returns its response.
+async fn forward_request_to_target(
+    req: &CreateShortUrlRequest,
+    target: BasicNode
 ) -> HttpResponse {
     // Retrieve the leader's address from the membership metrics.
-    let metrics = shared_state.raft.raft.metrics().borrow().clone();
-    let mut nodes = metrics.membership_config.nodes();
-    if let Some((_, leader_node)) = nodes.find(|(id, _)| **id == leader_id) {
-        let client = reqwest::Client::new();
-        let leader_url = format!("http://{}", leader_node.addr);
-        let forward_endpoint = format!("{}/submit", leader_url);
-        match client.post(&forward_endpoint).json(req).send().await {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    match resp.json::<CreateShortUrlResponse>().await {
-                        Ok(json) => {
-                            HttpResponse::Ok().content_type(APP_TYPE_JSON).json(json)
-                        }
-                        Err(e) => {
-                            HttpResponse::InternalServerError().body(format!("Failed to forward request to leader: {}", e))
-                        }
+    let client = reqwest::Client::new();
+    let leader_url = format!("http://{}", target.addr);
+    let forward_endpoint = format!("{}/submit", leader_url);
+    match client.post(&forward_endpoint).json(req).send().await {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                match resp.json::<CreateShortUrlResponse>().await {
+                    Ok(json) => {
+                        HttpResponse::Ok().content_type(APP_TYPE_JSON).json(json)
                     }
-
-                } else {
-                    HttpResponse::InternalServerError().body("Failed to forward request to leader")
+                    Err(e) => {
+                        HttpResponse::InternalServerError().body(format!("Failed to forward request to leader: {}", e))
+                    }
                 }
+
+            } else {
+                HttpResponse::InternalServerError().body("Failed to forward request to leader")
             }
-            Err(e) => HttpResponse::InternalServerError().body(format!("Failed to forward request: {}", e)),
         }
-    } else {
-        HttpResponse::InternalServerError().body("Leader node not found in membership")
+        Err(e) => HttpResponse::InternalServerError().body(format!("Failed to forward request: {}", e)),
     }
 }
 
