@@ -3,7 +3,7 @@ Url Shortener
 _**A very incomplete, unserious project.**_ 
 A web service that implements URL shortening functionality akin to Bitly, Tinyurl etc. (Intentionally) Massively 
 overengineered -- this whole thing could be done by stitching some lamdas to a cache + kv store, but I wanted to have fun.
-It is certainly NOT the academically-correct solution to this problem -- I just wanted to write a database and 
+It is certainly NOT the academically-correct solution to this problem -- I just wanted to fool around with raft and 
 familiarize myself with rust.
 
 
