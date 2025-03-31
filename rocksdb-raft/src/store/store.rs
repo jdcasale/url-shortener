@@ -13,41 +13,44 @@ use crate::NodeId;
 use crate::store::log_storage::LogStore;
 use crate::store::state_machine::StateMachineStore;
 
-/**
- * Here you will set the types of request that will interact with the raft nodes.
- * For example the `Set` will be used to write data (key and value) to the raft database.
- * The `AddNode` will append a new node to the current existing shared list of nodes.
- * You will want to add any request that can write data in all nodes here.
- */
+/// Represents the types of requests that can be made to the Raft cluster.
+/// Each variant corresponds to a different operation that can be performed.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum RaftRequest {
+    /// Set a key-value pair in the store
     Set { key: String, value: String },
+    /// Create a short URL from a long URL
     CreateShortUrl { long_url: String },
 }
 
-/**
- * Here you will defined what type of answer you expect from reading the data of a node.
- * In this example it will return a optional value from a given key in
- * the `ExampleRequest.Set`.
- *
- * TODO: Should we explain how to create multiple `AppDataResponse`?
- *
- */
+/// Represents the response from a Raft operation.
+/// Contains optional values for both regular key-value operations and short URL operations.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RaftResponse {
+    /// The value retrieved from a key-value operation
     pub value: Option<String>,
+    /// The short URL created from a long URL
     pub short_url: Option<String>,
 }
 
+/// Represents a snapshot of the state machine at a particular point in time.
+/// Used for state machine recovery and log compaction.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StoredSnapshot {
+    /// Metadata about the snapshot, including the last applied log ID and membership
     pub meta: SnapshotMeta<NodeId, Node>,
 
-    /// The data of the state machine at the time of this snapshot.
+    /// The serialized state machine data at the time of this snapshot
     pub data: Vec<u8>,
 }
 
-
+/// Creates a new storage instance with both log storage and state machine storage.
+/// 
+/// # Arguments
+/// * `db_path` - The path where the RocksDB database will be stored
+/// 
+/// # Returns
+/// A tuple containing the log store and state machine store instances
 pub async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, StateMachineStore) {
     let mut db_opts = Options::default();
     db_opts.create_missing_column_families(true);

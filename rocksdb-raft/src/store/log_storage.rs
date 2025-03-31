@@ -10,38 +10,48 @@ use crate::store::types::TypeConfig;
 
 use byteorder::ReadBytesExt;
 
+/// A storage implementation for Raft logs using RocksDB.
+/// This struct handles all log-related operations including appending, reading, and purging logs.
 #[derive(Debug, Clone)]
 pub struct LogStore {
+    /// The RocksDB database instance
     pub(crate) db: Arc<DB>,
 }
+
+/// A type alias for storage operation results
 pub type StorageResult<T> = Result<T, StorageError<NodeId>>;
 
-/// converts an id to a byte vector for storing in the database.
-/// Note that we're using big endian encoding to ensure correct sorting of keys
+/// Converts a log ID to a byte vector for storage in RocksDB.
+/// Uses big-endian encoding to ensure correct sorting of keys.
 fn id_to_bin(id: u64) -> Vec<u8> {
     let mut buf = Vec::with_capacity(8);
     buf.write_u64::<BigEndian>(id).unwrap();
     buf
 }
 
+/// Converts a byte vector back to a log ID.
 fn bin_to_id(buf: &[u8]) -> u64 {
     (&buf[0..8]).read_u64::<BigEndian>().unwrap()
 }
 
 impl LogStore {
+    /// Returns a handle to the "store" column family
     fn store(&self) -> &ColumnFamily {
         self.db.cf_handle("store").unwrap()
     }
 
+    /// Returns a handle to the "logs" column family
     fn logs(&self) -> &ColumnFamily {
         self.db.cf_handle("logs").unwrap()
     }
 
+    /// Flushes the write-ahead log to disk
     fn flush(&self, subject: ErrorSubject<NodeId>, verb: ErrorVerb) -> Result<(), StorageIOError<NodeId>> {
         self.db.flush_wal(true).map_err(|e| StorageIOError::new(subject, verb, AnyError::new(&e)))?;
         Ok(())
     }
 
+    /// Retrieves the ID of the last purged log entry
     fn get_last_purged_(&self) -> StorageResult<Option<LogId<u64>>> {
         Ok(self
             .db
@@ -50,6 +60,7 @@ impl LogStore {
             .and_then(|v| serde_json::from_slice(&v).ok()))
     }
 
+    /// Sets the ID of the last purged log entry
     fn set_last_purged_(&self, log_id: LogId<u64>) -> StorageResult<()> {
         self.db
             .put_cf(
@@ -65,6 +76,7 @@ impl LogStore {
         Ok(())
     }
 
+    /// Sets the ID of the last committed log entry
     fn set_committed_(&self, committed: &Option<LogId<NodeId>>) -> Result<(), StorageIOError<NodeId>> {
         let json = serde_json::to_vec(committed).unwrap();
 
@@ -74,6 +86,7 @@ impl LogStore {
         Ok(())
     }
 
+    /// Retrieves the ID of the last committed log entry
     fn get_committed_(&self) -> StorageResult<Option<LogId<NodeId>>> {
         Ok(self
             .db
@@ -84,6 +97,7 @@ impl LogStore {
             .and_then(|v| serde_json::from_slice(&v).ok()))
     }
 
+    /// Saves the current vote to storage
     fn set_vote_(&self, vote: &Vote<NodeId>) -> StorageResult<()> {
         self.db
             .put_cf(self.store(), b"vote", serde_json::to_vec(vote).unwrap())
@@ -95,6 +109,7 @@ impl LogStore {
         Ok(())
     }
 
+    /// Retrieves the current vote from storage
     fn get_vote_(&self) -> StorageResult<Option<Vote<NodeId>>> {
         Ok(self
             .db
@@ -107,6 +122,7 @@ impl LogStore {
 }
 
 impl RaftLogReader<TypeConfig> for LogStore {
+    /// Retrieves log entries within the specified range
     async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + OptionalSend>(
         &mut self,
         range: RB,
@@ -142,6 +158,7 @@ impl RaftLogReader<TypeConfig> for LogStore {
 impl RaftLogStorage<TypeConfig> for LogStore {
     type LogReader = Self;
 
+    /// Gets the current state of the log storage
     async fn get_log_state(&mut self) -> StorageResult<LogState<TypeConfig>> {
         let last = self.db.iterator_cf(self.logs(), rocksdb::IteratorMode::End).next().and_then(|res| {
             let (_, ent) = res.unwrap();
@@ -160,25 +177,30 @@ impl RaftLogStorage<TypeConfig> for LogStore {
         })
     }
 
+    /// Saves the ID of the last committed log entry
     async fn save_committed(&mut self, _committed: Option<LogId<NodeId>>) -> Result<(), StorageError<NodeId>> {
         self.set_committed_(&_committed)?;
         Ok(())
     }
 
+    /// Retrieves the ID of the last committed log entry
     async fn read_committed(&mut self) -> Result<Option<LogId<NodeId>>, StorageError<NodeId>> {
         let c = self.get_committed_()?;
         Ok(c)
     }
 
+    /// Saves the current vote to storage
     #[tracing::instrument(level = "trace", skip(self))]
     async fn save_vote(&mut self, vote: &Vote<NodeId>) -> Result<(), StorageError<NodeId>> {
         self.set_vote_(vote)
     }
 
+    /// Retrieves the current vote from storage
     async fn read_vote(&mut self) -> Result<Option<Vote<NodeId>>, StorageError<NodeId>> {
         self.get_vote_()
     }
 
+    /// Appends new log entries to storage
     #[tracing::instrument(level = "trace", skip_all)]
     async fn append<I>(&mut self, entries: I, callback: LogFlushed<TypeConfig>) -> StorageResult<()>
     where
@@ -228,6 +250,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
         Ok(())
     }
 
+    /// Truncates the log at the specified log ID
     #[tracing::instrument(level = "debug", skip(self))]
     async fn truncate(&mut self, log_id: LogId<NodeId>) -> StorageResult<()> {
         tracing::debug!("delete_log: [{:?}, +oo)", log_id);
@@ -239,6 +262,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
         })
     }
 
+    /// Purges log entries up to the specified log ID
     #[tracing::instrument(level = "debug", skip(self))]
     async fn purge(&mut self, log_id: LogId<NodeId>) -> Result<(), StorageError<NodeId>> {
         tracing::debug!("delete_log: [0, {:?}]", log_id);
@@ -251,6 +275,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
         })
     }
 
+    /// Returns a reader for accessing log entries
     async fn get_log_reader(&mut self) -> Self::LogReader {
         self.clone()
     }
