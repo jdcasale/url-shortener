@@ -33,6 +33,7 @@ impl BlobStore for LocalFileBlobStore {
 mod tests {
     use super::*;
     use std::fs;
+    use std::fs::File;
     use std::io::Read;
     use uuid::Uuid;
 

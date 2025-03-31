@@ -9,14 +9,18 @@ use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use actix_web::http::header;
+use actix_web::web::Data;
 use clap::Parser;
+use openraft::BasicNode;
 use web::Json;
 use rocksdb_raft::{network, start_raft_node};
-use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest};
+use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest, VoteRequest};
+use tracing::Level;
 use crate::errors::ShortenerErr;
 use rocksdb_raft::rocksb_store::{LongUrlEntry, TypeConfig};
 use crate::params::Args;
 use validator::Validate;
+use rocksdb_raft::network::callback_network_impl::{Node, NodeId};
 
 #[derive(Serialize, Deserialize)]
 struct Hello {}
@@ -44,6 +48,23 @@ struct CreateShortUrlResponse {
 
 
 const APP_TYPE_JSON: &str = "application/json";
+// raft: &Arc<openraft::Raft<TypeConfig>>
+async fn get_leader_info(shared_state: &web::Data<AppStateWithCounter>,) -> Result<(NodeId, Node), actix_web::Error> {
+    let metrics = shared_state.raft.raft.metrics().borrow().clone();
+    let leader_id = metrics.current_leader.ok_or_else(|| {
+        actix_web::error::ErrorInternalServerError("No leader elected yet")
+    })?;
+
+    let leader_node = metrics.membership_config.nodes()
+        .find(|(id, _)| **id == leader_id)
+        .map(|(_, node)| node.clone())
+        .ok_or_else(|| {
+            actix_web::error::ErrorInternalServerError(format!("Leader node {} not found in membership", leader_id))
+        })?;
+
+    Ok((leader_id, leader_node))
+}
+
 
 #[post("/submit")]
 async fn create_short_url(
@@ -67,63 +88,89 @@ async fn create_short_url(
 
     // Construct the Raft entry.
     let entry = LongUrlEntry::new(hash, url_str.clone(), shared_state.raft.id);
-    tracing::info!("Creating");
+    tracing::debug!("Creating");
     // Submit the entry to Raft.
-    match shared_state.raft.raft.client_write(entry).await {
+
+    match get_leader_info(&shared_state).await {
+        Ok((leader_id, leader)) => {
+            if shared_state.raft.id == leader_id {
+                // try to write the entry -- write_entry_to_raft still handles races internally,
+                // but we don't expect them so we're good to action the write
+                write_entry_to_raft(&shared_state, &req, hash, url_str, entry).await.unwrap_or_else(|value| value)
+            } else {
+                // forward to the node we currently think is leader
+                forward_request_to_target(&req, leader).await
+            }
+        }
+        Err(e) => {
+            tracing::info!("Failed to look up leader: {}", e);
+            HttpResponse::InternalServerError().body("Could not look up leader")
+        }
+    }
+
+}
+
+async fn write_entry_to_raft(shared_state: &Data<AppStateWithCounter>, req: &CreateShortUrlRequest, hash: u64, url_str: String, entry: LongUrlEntry) -> Result<HttpResponse, HttpResponse> {
+    Ok(match shared_state.raft.raft.client_write(entry).await {
         Ok(raft_resp) => {
-            tracing::info!("raft resp: {:?}", raft_resp);
+            tracing::debug!("raft resp: {:?}", raft_resp);
             shared_state.long_url_lookup.insert(hash, url_str);
             let resp = CreateShortUrlResponse { short_url: format!("{:x}", hash) };
             HttpResponse::Ok().content_type(APP_TYPE_JSON).json(resp)
         }
         Err(e) => {
-            tracing::info!("Forwarding to leader");
+            tracing::debug!("Forwarding to leader");
             // If a forward-to-leader error exists, forward the request.
-            if let Some(forward_info) = e.forward_to_leader() {
-                if let Some(leader_id) = forward_info.leader_id {
-                    return forward_request_to_leader(&req, &shared_state, leader_id).await;
-                } else {
-                    return HttpResponse::InternalServerError().body("Leader ID not found");
-                }
+            if let Some(_forward_info) = e.forward_to_leader() {
+                return Ok(forward_request_to_leader(req, shared_state).await);
+            } else {
+                HttpResponse::InternalServerError().body("Not a ForwardToLeader error")
             }
-            HttpResponse::InternalServerError().body("Not a ForwardToLeader error")
+        }
+    })
+}
+
+async fn forward_request_to_leader(
+    req: &CreateShortUrlRequest,
+    shared_state: &Data<AppStateWithCounter>,
+) -> HttpResponse {
+    match get_leader_info(shared_state).await {
+        Ok((_leader_id, leader)) => {
+            forward_request_to_target(req, leader).await
+        }
+        Err(e) => {
+            HttpResponse::InternalServerError().body(format!("Failed to forward request: {}", e))
         }
     }
 }
 
+
 /// Forwards the original request to the leader node and returns its response.
-async fn forward_request_to_leader(
+async fn forward_request_to_target(
     req: &CreateShortUrlRequest,
-    shared_state: &web::Data<AppStateWithCounter>,
-    leader_id: u64,
+    target: BasicNode
 ) -> HttpResponse {
     // Retrieve the leader's address from the membership metrics.
-    let metrics = shared_state.raft.raft.metrics().borrow().clone();
-    let mut nodes = metrics.membership_config.nodes();
-    if let Some((_, leader_node)) = nodes.find(|(id, _)| **id == leader_id) {
-        let client = reqwest::Client::new();
-        let leader_url = format!("http://{}", leader_node.addr);
-        let forward_endpoint = format!("{}/submit", leader_url);
-        match client.post(&forward_endpoint).json(req).send().await {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    match resp.json::<CreateShortUrlResponse>().await {
-                        Ok(json) => {
-                            HttpResponse::Ok().content_type(APP_TYPE_JSON).json(json)
-                        }
-                        Err(e) => {
-                            HttpResponse::InternalServerError().body(format!("Failed to forward request to leader: {}", e))
-                        }
+    let client = reqwest::Client::new();
+    let leader_url = format!("http://{}", target.addr);
+    let forward_endpoint = format!("{}/submit", leader_url);
+    match client.post(&forward_endpoint).json(req).send().await {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                match resp.json::<CreateShortUrlResponse>().await {
+                    Ok(json) => {
+                        HttpResponse::Ok().content_type(APP_TYPE_JSON).json(json)
                     }
-
-                } else {
-                    HttpResponse::InternalServerError().body("Failed to forward request to leader")
+                    Err(e) => {
+                        HttpResponse::InternalServerError().body(format!("Failed to forward request to leader: {}", e))
+                    }
                 }
+
+            } else {
+                HttpResponse::InternalServerError().body("Failed to forward request to leader")
             }
-            Err(e) => HttpResponse::InternalServerError().body(format!("Failed to forward request: {}", e)),
         }
-    } else {
-        HttpResponse::InternalServerError().body("Leader node not found in membership")
+        Err(e) => HttpResponse::InternalServerError().body(format!("Failed to forward request: {}", e)),
     }
 }
 
@@ -211,6 +258,14 @@ async fn install_snapshot(req: Json<InstallSnapshotRequest<TypeConfig>>,
         .map(|resp| HttpResponse::Ok().json(resp))
 }
 
+#[post("/raft/vote")]
+async fn vote(req: Json<VoteRequest<u64>>, shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
+    shared_state.raft.raft.vote(req.0)
+        .await
+        .map_err(ShortenerErr::RaftError)
+        .map(|resp| HttpResponse::Ok().json(resp))
+}
+
 #[post("/cluster/add-learner")]
 async fn add_learner(
     req: web::Json<(u64, String)>,
@@ -264,7 +319,7 @@ async fn change_membership(
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let args = Args::parse();
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt().with_max_level(Level::WARN).init();
 
     // Create your NoopRaftNetwork instance early on.
     let mut raft_network = rocksdb_raft::network::callback_network_impl::CallbackRaftNetwork::new();
@@ -279,13 +334,14 @@ async fn main() -> std::io::Result<()> {
         .await;
 
     let cache = web::Data::new(AppStateWithCounter {
-        long_url_lookup: Cache::new(100_000_000),
+        long_url_lookup: Cache::new(1_000_000),
         raft: raft_app,
     });
 
     // Spawn the HTTP server in a background task.
     let server = HttpServer::new(move || {
         App::new()
+            .app_data(web::JsonConfig::default().limit(100 * 1024 * 1024)) // Set payload limit to 10 MB
             .app_data(cache.clone())
             .service(create_short_url)
             .service(lookup_url)
@@ -293,6 +349,7 @@ async fn main() -> std::io::Result<()> {
             .service(redirect)
             .service(append_entries)
             .service(install_snapshot)
+            .service(vote)
             .service(add_learner)
             .service(change_membership)
     })
