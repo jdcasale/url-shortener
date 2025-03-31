@@ -3,13 +3,15 @@ extern crate core;
 mod errors;
 mod params;
 
-use actix_web::{post, web, App, HttpResponse, HttpServer, Responder, get};
+use actix_web::{post, web, App, HttpResponse, HttpServer, Responder, get, Error};
 use quick_cache::sync::{Cache};
 use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use actix_web::http::header;
+use actix_web::web::Data;
 use clap::Parser;
+use openraft::BasicNode;
 use web::Json;
 use rocksdb_raft::{network, start_raft_node};
 use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest, VoteRequest};
@@ -18,6 +20,7 @@ use crate::errors::ShortenerErr;
 use rocksdb_raft::rocksb_store::{LongUrlEntry, TypeConfig};
 use crate::params::Args;
 use validator::Validate;
+use rocksdb_raft::network::callback_network_impl::{Node, NodeId};
 
 #[derive(Serialize, Deserialize)]
 struct Hello {}
@@ -45,6 +48,22 @@ struct CreateShortUrlResponse {
 
 
 const APP_TYPE_JSON: &str = "application/json";
+// raft: &Arc<openraft::Raft<TypeConfig>>
+async fn get_leader_info(shared_state: &web::Data<AppStateWithCounter>,) -> Result<(NodeId, Node), actix_web::Error> {
+    let metrics = shared_state.raft.raft.metrics().borrow().clone();
+    let leader_id = metrics.current_leader.ok_or_else(|| {
+        actix_web::error::ErrorInternalServerError("No leader elected yet")
+    })?;
+
+    let leader_node = metrics.membership_config.nodes().get(&leader_id)
+        .ok_or_else(|| {
+            actix_web::error::ErrorInternalServerError(format!("Leader node {} not found in membership", leader_id))
+        })?
+        .clone();
+
+    Ok((leader_id, leader_node))
+}
+
 
 #[post("/submit")]
 async fn create_short_url(
@@ -70,7 +89,30 @@ async fn create_short_url(
     let entry = LongUrlEntry::new(hash, url_str.clone(), shared_state.raft.id);
     tracing::info!("Creating");
     // Submit the entry to Raft.
-    match shared_state.raft.raft.client_write(entry).await {
+
+    let maybe_is_leader = match get_leader_info(&shared_state).await {
+        Ok((leader_id, leader)) => {
+            if shared_state.raft.id == leader_id {
+                // try to write the entry -- write_entry_to_raft still handles races internally,
+                // but we don't expect them so we're good to action the write
+                match write_entry_to_raft(&shared_state, &req, hash, url_str, entry).await {
+                    Ok(value) => value,
+                    Err(value) => value,
+                }
+            } else {
+                // forward to the node we currently think is leader
+                forward_request_to_leader(&req, &shared_state, leader_id).await
+            }
+        },
+        Err(e) => {
+            HttpResponse::InternalServerError().body("Could not look up leader")
+        }
+    };
+
+}
+
+async fn write_entry_to_raft(shared_state: &Data<AppStateWithCounter>, req: &CreateShortUrlRequest, hash: u64, url_str: String, entry: LongUrlEntry) -> Result<impl Responder<Body=_> + Sized, impl Responder<Body=_> + Sized> {
+    Ok(match shared_state.raft.raft.client_write(entry).await {
         Ok(raft_resp) => {
             tracing::info!("raft resp: {:?}", raft_resp);
             shared_state.long_url_lookup.insert(hash, url_str);
@@ -82,15 +124,15 @@ async fn create_short_url(
             // If a forward-to-leader error exists, forward the request.
             if let Some(forward_info) = e.forward_to_leader() {
                 if let Some(leader_id) = forward_info.leader_id {
-                    return forward_request_to_leader(&req, &shared_state, leader_id).await;
+                    return Ok(forward_request_to_leader(&req, &shared_state, leader_id).await);
                 } else {
                     tracing::error!("{}", format!("{:?}", forward_info));
-                    return HttpResponse::InternalServerError().body("Leader ID not found");
+                    return Err(HttpResponse::InternalServerError().body("Leader ID not found"));
                 }
             }
             HttpResponse::InternalServerError().body("Not a ForwardToLeader error")
         }
-    }
+    })
 }
 
 /// Forwards the original request to the leader node and returns its response.
