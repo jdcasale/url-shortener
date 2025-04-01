@@ -14,7 +14,7 @@ Overall goal is to cheap -- more precisely, to be able to run Tinyurl's global t
 
 TODO
 ----
-- [x] Persistence -- right now, everything is in-memory, but we'll need to persist urls so that we don't wipe all created urls on restart
-- [x] Distribution -- writes to one node should be reflected in reads to any node 
-- [ ] Sharding -- goes hand-in-hand with persistence. We don't want to have one giant, replicated database with a single keyspace for obvious reasons  
+- [x] Persistence -- ~right now, everything is in-memory, but we'll need to persist urls so that we don't wipe all created urls on restart~ Writes are strongly-consistent via RAFT and written to an on-disk RocksDB store. (done)
+- [x] Distribution -- writes to one node should be reflected in reads to any node  (done)
+- [ ] Sharding -- goes hand-in-hand with persistence. We don't want to have one giant, replicated database with a single keyspace for obvious reasons 
 - [ ] Authentication -- there is no authentication, nor is there any user tracking. In order to implement billing, attribution, etc this is obviously necessary.
