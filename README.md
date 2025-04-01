@@ -16,5 +16,7 @@ TODO
 ----
 - [x] Persistence -- ~right now, everything is in-memory, but we'll need to persist urls so that we don't wipe all created urls on restart~ Writes are strongly-consistent via RAFT and written to an on-disk RocksDB store. (done)
 - [x] Distribution -- writes to one node should be reflected in reads to any node  (done)
-- [ ] Sharding -- goes hand-in-hand with persistence. We don't want to have one giant, replicated database with a single keyspace for obvious reasons 
+- [ ] DR/Backups -- We should be able to export periodic snapshots of the persistence layer so that in the event of corruption, we can restore from a backup.
+- [ ] Sharding -- goes hand-in-hand with persistence. We don't want to have one giant, replicated database with a single keyspace for obvious reasons
+- [ ] Shard-aware backups 
 - [ ] Authentication -- there is no authentication, nor is there any user tracking. In order to implement billing, attribution, etc this is obviously necessary.
