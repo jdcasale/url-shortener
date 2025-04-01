@@ -12,27 +12,27 @@ pub enum ShortenerErr {
     #[error("Failed to parse JSON")]
     JsonError(#[from] SerdeError),
 
-    #[error("Failed to parse JSON")]
-    JsonError2(#[from] ParseIntError),
-
-    #[error("Failed to parse URL")]
-    UrlParseError(#[from] ParseError),
+    #[error("Failed to parse int from hash")]
+    HashParsingError(#[from] ParseIntError),
 
     #[error("An error occurred when replicating state")]
-    RaftError(#[from] RaftError),
+    RaftAppendError(#[from] RaftError),
+
+    #[error("An error occurred when voting")]
+    RaftVotingError(#[from] RaftError),
 
     #[error("An error occurred when replicating state")]
-    RaftError2(#[from] RaftError<InstallSnapshotError>),
+    RaftSnapshotError(#[from] RaftError<InstallSnapshotError>),
 }
 
 impl ResponseError for ShortenerErr {
     fn error_response(&self) -> HttpResponse {
         match self {
             ShortenerErr::JsonError(_) => HttpResponse::BadRequest().body(self.to_string()),
-            ShortenerErr::JsonError2(_) => HttpResponse::UnprocessableEntity().body(self.to_string()),
-            ShortenerErr::UrlParseError(_) => {HttpResponse::UnprocessableEntity().body(self.to_string())}
-            ShortenerErr::RaftError(_) => {HttpResponse::InternalServerError().body(self.to_string())}
-            ShortenerErr::RaftError2(_) => {HttpResponse::InternalServerError().body(self.to_string())}
+            ShortenerErr::HashParsingError(_) => HttpResponse::UnprocessableEntity().body(self.to_string()),
+            ShortenerErr::RaftAppendError(_) => {HttpResponse::InternalServerError().body(self.to_string())}
+            ShortenerErr::RaftVotingError(_) => {HttpResponse::InternalServerError().body(self.to_string())}
+            ShortenerErr::RaftSnapshotError(_) => {HttpResponse::InternalServerError().body(self.to_string())}
         }
     }
 }
