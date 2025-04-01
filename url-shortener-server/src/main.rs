@@ -1,7 +1,7 @@
 extern crate core;
 
 mod errors;
-mod params;
+mod args;
 mod services;
 
 use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
@@ -12,7 +12,7 @@ use std::sync::Arc;
 use clap::Parser;
 use rocksdb_raft::{network, start_raft_node};
 use tracing::Level;
-use crate::params::Args;
+use crate::args::Args;
 use crate::services::raft_service::{add_learner, append_entries, change_membership, install_snapshot, vote};
 use crate::services::shortener_service::{create_short_url, lookup_url, redirect, AppStateWithCounter, APP_TYPE_JSON};
 
