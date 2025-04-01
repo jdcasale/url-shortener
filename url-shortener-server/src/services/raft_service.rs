@@ -11,7 +11,7 @@ async fn append_entries(req: Json<AppendEntriesRequest<TypeConfig>>,
                         shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
     shared_state.raft.raft.append_entries(req.0)
         .await
-        .map_err(ShortenerErr::RaftError)
+        .map_err(ShortenerErr::RaftAppendError)
         .map(|resp| HttpResponse::Ok().json(resp))
 
 }
@@ -21,7 +21,7 @@ async fn install_snapshot(req: Json<InstallSnapshotRequest<TypeConfig>>,
                           shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
     shared_state.raft.raft.install_snapshot(req.0)
         .await
-        .map_err(ShortenerErr::RaftError2)
+        .map_err(ShortenerErr::RaftSnapshotError)
         .map(|resp| HttpResponse::Ok().json(resp))
 }
 
@@ -29,7 +29,7 @@ async fn install_snapshot(req: Json<InstallSnapshotRequest<TypeConfig>>,
 async fn vote(req: Json<VoteRequest<u64>>, shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
     shared_state.raft.raft.vote(req.0)
         .await
-        .map_err(ShortenerErr::RaftError)
+        .map_err(ShortenerErr::RaftVotingError)
         .map(|resp| HttpResponse::Ok().json(resp))
 }
 

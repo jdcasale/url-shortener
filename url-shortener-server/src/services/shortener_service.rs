@@ -172,8 +172,7 @@ async fn lookup_url<'a>(
 
     let to_hash = u64::from_str_radix(&from_path, 16);
     if let Err(e) = to_hash {
-        tracing::error!("breeeeehhhhhhhhhhhhhhh");
-        return HttpResponse::from_error(ShortenerErr::JsonError2(e));
+        return HttpResponse::from_error(ShortenerErr::HashParsingError(e));
     }
     let hash = to_hash.expect("already checked");
     // if let Some(long_url) = shared_state.long_url_lookup.get(&hash) {
@@ -204,7 +203,7 @@ async fn redirect(
 ) -> impl Responder {
     let to_hash = u64::from_str_radix(&hash, 16);
     if let Err(e) = to_hash {
-        return HttpResponse::from_error(ShortenerErr::JsonError2(e));
+        return HttpResponse::from_error(ShortenerErr::HashParsingError(e));
     }
 
     let hash = to_hash.expect("already checked");
