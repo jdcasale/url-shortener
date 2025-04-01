@@ -3,7 +3,7 @@ use std::io::Cursor;
 use openraft::{BasicNode, Entry, RaftTypeConfig, TokioRuntime};
 use openraft::impls::OneshotResponder;
 use serde::{Deserialize, Serialize};
-use crate::store::store::RaftResponse;
+use crate::store::storage::RaftResponse;
 
 /// Represents a long URL entry in the Raft log.
 /// This is the data type that will be stored in the Raft log entries.

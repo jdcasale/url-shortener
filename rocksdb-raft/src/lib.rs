@@ -11,7 +11,7 @@ use crate::app::App;
 use network::callback_network_impl::NodeId;
 use crate::network::callback_network_impl::CallbackRaftNetwork;
 use store::types::TypeConfig;
-use crate::store::store::new_storage;
+use crate::store::storage::new_storage;
 
 pub mod app;
 pub mod client;

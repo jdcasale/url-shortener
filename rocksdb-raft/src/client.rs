@@ -15,7 +15,7 @@ use serde::Serialize;
 use crate::network::callback_network_impl::Node;
 use crate::typ;
 use crate::NodeId;
-use crate::store::store::RaftRequest;
+use crate::store::storage::RaftRequest;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Empty {}

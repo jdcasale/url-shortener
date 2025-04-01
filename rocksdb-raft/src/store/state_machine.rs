@@ -7,7 +7,7 @@ use rocksdb::{ColumnFamily, DB};
 use tokio::sync::RwLock;
 use crate::network::callback_network_impl::{Node, NodeId};
 use crate::store::types::{LongUrlEntry, TypeConfig};
-use crate::store::store::{RaftResponse, StoredSnapshot};
+use crate::store::storage::{RaftResponse, StoredSnapshot};
 use crate::{typ, SnapshotData};
 use crate::store::log_storage::StorageResult;
 
