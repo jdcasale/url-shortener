@@ -47,7 +47,6 @@ pub async fn start_raft_node<P>(
     node_id: NodeId,
     dir: P,
     http_addr: String,
-    rpc_addr: String,
     network: Arc<CallbackRaftNetwork>
 ) -> Arc<App>
 where
@@ -89,7 +88,6 @@ where
     Arc::new(App {
         id: node_id,
         api_addr: http_addr.clone(),
-        rpc_addr: rpc_addr.clone(),
         raft,
         key_values: kvs,
         config,

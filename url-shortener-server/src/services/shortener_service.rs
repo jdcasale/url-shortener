@@ -1,3 +1,4 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use actix_web::{get, post, web, HttpResponse, Responder};
 use actix_web::http::header;
@@ -8,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use validator::Validate;
 use rocksdb_raft::network::callback_network_impl::{Node, NodeId};
 use rocksdb_raft::store::types::LongUrlEntry;
-use crate::calculate_hash;
 use crate::errors::ShortenerErr;
 
 pub const APP_TYPE_JSON: &str = "application/json";
@@ -34,9 +34,12 @@ struct CreateShortUrlResponse {
     short_url: String,
 }
 
+fn calculate_hash(t: &str) -> u64 {
+    let mut s = DefaultHasher::new();
+    t.hash(&mut s);
+    s.finish()
+}
 
-
-// raft: &Arc<openraft::Raft<TypeConfig>>
 async fn get_leader_info(shared_state: &web::Data<AppStateWithCounter>,) -> Result<(NodeId, Node), actix_web::Error> {
     let metrics = shared_state.raft.raft.metrics().borrow().clone();
     let leader_id = metrics.current_leader.ok_or_else(|| {

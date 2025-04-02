@@ -7,7 +7,6 @@ mod services;
 use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use clap::Parser;
 use rocksdb_raft::{network, start_raft_node};
@@ -37,9 +36,8 @@ async fn main() -> std::io::Result<()> {
     // Create the Raft node (which uses the network)
     let raft_app = start_raft_node(
         args.node_id,
-        format!("{}.db", args.raft_rpc_addr),
+        format!("{}.db", args.http_addr),
         args.http_addr.clone(),
-        args.raft_rpc_addr.clone(),
         Arc::new(raft_network.clone()))
         .await;
 
@@ -80,10 +78,4 @@ async fn main() -> std::io::Result<()> {
     // Await the server task so that your application keeps running.
     server_handle.await??;
     Ok(())
-}
-
-fn calculate_hash(t: &str) -> u64 {
-    let mut s = DefaultHasher::new();
-    t.hash(&mut s);
-    s.finish()
 }
