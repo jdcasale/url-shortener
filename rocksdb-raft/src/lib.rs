@@ -39,7 +39,7 @@ pub mod typ {
     pub type ClientWriteResponse = openraft::raft::ClientWriteResponse<TypeConfig>;
 }
 
-pub type ExampleRaft = openraft::Raft<TypeConfig>;
+pub type RaftImpl = openraft::Raft<TypeConfig>;
 
 type Server = tide::Server<Arc<App>>;
 
@@ -65,7 +65,8 @@ where
 
     let (log_store, state_machine_store) = new_storage(&dir).await;
 
-    let kvs = state_machine_store.data.kvs.clone();
+    let history = state_machine_store.data.historical_kvs.clone();
+    let new_writes = state_machine_store.data.new_writes_kvs.clone();
 
     // Create a local raft instance.
     let raft = openraft::Raft::new(node_id, config.clone(), network, log_store, state_machine_store).await.unwrap();
@@ -89,7 +90,8 @@ where
         id: node_id,
         api_addr: http_addr.clone(),
         raft,
-        key_values: kvs,
+        historical_kvs: history,
+        new_writes_kvs: new_writes,
         config,
     })
 }

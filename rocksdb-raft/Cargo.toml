@@ -34,6 +34,8 @@ toy-rpc = { version = "0.8.6", features = [
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.0", features = ["env-filter"] }
 async-trait = "0.1.81"
+sha2 = "0.9.9"
+
 
 [dev-dependencies]
 maplit = "1.0.2"

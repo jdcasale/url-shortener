@@ -40,7 +40,7 @@ fn calculate_hash(t: &str) -> u64 {
     s.finish()
 }
 
-async fn get_leader_info(shared_state: &web::Data<AppStateWithCounter>,) -> Result<(NodeId, Node), actix_web::Error> {
+async fn get_leader_info(shared_state: &Data<AppStateWithCounter>,) -> Result<(NodeId, Node), actix_web::Error> {
     let metrics = shared_state.raft.raft.metrics().borrow().clone();
     let leader_id = metrics.current_leader.ok_or_else(|| {
         actix_web::error::ErrorInternalServerError("No leader elected yet")
@@ -170,7 +170,7 @@ async fn forward_request_to_target(
 #[get("/lookup/{hash}")]
 async fn lookup_url<'a>(
     from_path: web::Path<String>,
-    shared_state: web::Data<AppStateWithCounter>
+    shared_state: Data<AppStateWithCounter>
 ) -> impl Responder {
 
     let to_hash = u64::from_str_radix(&from_path, 16);
@@ -186,7 +186,7 @@ async fn lookup_url<'a>(
     // }
     let hash_str = hash.to_string();
 
-    let guard = shared_state.raft.key_values.read().await;
+    let guard = shared_state.raft.historical_kvs.read().await;
     let from_kvs = guard.get(&hash_str);
     // let from_kvs = shared_state.rocks_app.get_entry(hash);
     if let Some(long_url) = from_kvs {
