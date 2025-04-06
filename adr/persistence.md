@@ -23,7 +23,7 @@ greatly complicates the forthcoming database design.
 
 Solution? Roll our own database *gasp*.
 Ok so it's not quite as bad as it seems. We'll rely on RocksDB for the primitive KV store, RAFT for synchronization,
-and we'll cheat just a little bit by using a blob store.
+and we'll cheat just a little bit by using a blob store for backups and shard distribution.
 
 ### Requirements
 OK, so ~~here's the earth, _chillin_~~ the basic goal is to provide a key-value store that meets the following requirements:
@@ -37,44 +37,48 @@ OK, so ~~here's the earth, _chillin_~~ the basic goal is to provide a key-value 
 
 ### ~~How do I shot web?~~ Design
 #### Writes
-We shard writes to one of N shards. Initially N=1. Each shard is owned by one leader, which uses RAFT to synchronize writes
-to all of the other nodes. The reason we shard is so that we can allow multiple writers, rather than relying on the write
-throughput of a single node for the whole cluster. This means that each node will be running N RAFT state machines, but
-this is really just an implementation detail, and for what it's worth, in early benchmarking, we can achieve 8k writes/sec
-on my laptop with one single node -- this would correspond to ~100x Tinyurls' monthly web traffic, and their traffic is almost
-certainly read-heavy.
 
-The raft long is persisted on each node via Rocksdb. This would become a major problem over time, as the performance of
-a rocks table can slow down over time. HOWEVER, we do not keep all of the data in a single rocksdb table, nor do we want to.
+##### v0
+There's a lot of complexity baked into the eventual design. We'll get there incrementally. The first iteration uses a single
+RAFT store (and thus a single writer). There is no sharding or partitioning. We just write to a single,
+strongly-consistent store. The raft log is durable because of the RocksDB table that backs the raft implementation,
+but the k-v store itself s in memory. There are no backups, no sharding, and as the table grows large, 
+memory footprint grows and snapshots become intractible because they involve shipping the entire database.
 
-Once the rocks table hits a certain size, we send an UPLOAD message to the cluster. This tells the cluster to take all
-of the data currently in the rocks instance and export it to a blob store. We scribble down a note in the state machine's
-metadata table to note this.
+##### v1
+We introduce the notion of chunks. We separate the db into a history key-value store and a writes key-value store.
+Occasionally*, we take everything in the 'writes' store, freeze it, give it a 'chunk id', store it in an 
+external (s3) blob store. We then move those values from 'writes' to 'history', clear out 'writes', and scribble down
+the chunk id in our state machine. We no longer store historical data in the raft snapshots/log because this can be
+reconstructed deterministically from the chunk ids in the metadata. This way, we bound the growth of our raft log and
+snapshots 
 
-While this is happening, we continue to accept writes, but once it's done, we sent through a REDISTRIBUTE message with
-the chunk id. Chunk ids are distributed between nodes via a consistent hashing scheme, and each node has a thread that
-keeps an eye on the node's local chunk store and the metadata table, and downloads chunks when necessary. It then
-updates the state machine to notify that the chunk has been downloaded. Each chunk is assigned to at least 2 nodes for
-redundancy, and if a node fails to heartbeat to the raft store, we note this so that the remaining nodes can re-download
-the applicable chunks so that we never end up with missing data
-^^ REDO THIS EXPLANATION IT'S TERRIBLE AND I'M TIRED
+WHen a node goes to restore from a snapshot, it downloads the relevant blob and merges that into its history store.
 
-Once the chunk has been downloaded to it's required redundancy level, we nuke the associated IDs from the state machine.
+##### v2
+Migrate the in-memory historical store to rocks. We are then no longer limited to the size of a kvs that we can fit in 
+memory.
 
-This process gives us a couple of benefits:
-- It imposes a ceiling on the size of the state machine.
-  - Otherwise:
-    - snapshots would eventually begin to fail
-    - startups will take longer and longer over time
-    - reads/writes would get slower and slower over time
-- It enables us to persist all of the data to a blob store, which makes disaster recovery possible
-- It enables us to compact chunks in order to redistribute keys and ameliorate issues with hot-spotting 
+##### v4
+Instead of all recent writes going into the same chunk and having a monolithic rocks lookup, we bucket the writes into
+some large number of bucket keys and give each of those a chunk-id salted with its bucket-key. We can then keep track
+of a mapping between nodes and assigned chunk keys (consistent hashing) and distribute chunks accordingly. When a new
+node joins the ring, we can reassign and redistribute chunks. Reads can be forwarded to the appropriate node based on
+this state.
 
+This way, we don't need to keep a full copy of the data on each node. 
+
+
+##### v99 (maybe)
+We introduce multiple writers. Currently, any write that is directed to a node that is not the leader must be forwarded
+to the leader, who then needs to chatter back to the rest of the cluster via RAFT. This extra hop is not ideal, but I'm
+not totally sure how expensive it is relative to the other operations. If we're not satisfied with write perf at v2,
+maybe we'll try this.
 
 
 #### Reads
 Each node serves read traffic, and has an in-memory cache. My laptop serves ~90k cached reads/sec -- if we can get
-even a 20th of this we're easily in the clear.
+even 5% of this we're easily in the clear.
 
 The complexity comes in two places:
 - Consistent hashing
