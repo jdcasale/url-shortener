@@ -64,6 +64,7 @@ pub struct StateMachineData {
 impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
     /// Builds a new snapshot of the current state machine state.
     async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
+        tracing::error!("Building snapshot");
         let last_applied_log = self.data.last_applied_log_id;
         let last_membership = self.data.last_membership.clone();
 
@@ -105,8 +106,9 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
             .await
             .iter()
             .map(|cid| ChunkReference { id: (*cid.clone()).parse().unwrap() }).collect();
-        let new_chunk = ChunkReference { id: chunk_id};
+        let new_chunk = ChunkReference { id: chunk_id.clone()};
         chunks.push(new_chunk);
+        self.data.merged_chunks.write().await.insert(chunk_id);
         let manifest = SnapshotManifest {chunks};
         // Instead of embedding the full blob, we serialize the chunk ID as our manifest.
         let manifest = serde_json::to_vec(&manifest)
@@ -131,6 +133,7 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
             meta,
             snapshot: Box::new(Cursor::new(manifest)),
         };
+        tracing::error!("Done building snapshot");
         Ok(snapshot)
     }
 }
@@ -164,6 +167,7 @@ impl StateMachineStore {
 
     /// Updates the state machine with data from a snapshot.
     async fn update_state_machine_(&mut self, snapshot: StoredSnapshot) -> Result<(), StorageError<NodeId>> {
+        tracing::error!("Updating from snapshot");
 
         // Deserialize the manifest from snapshot metadata.
         let manifest: SnapshotManifest = serde_json::from_slice(&snapshot.data)
@@ -184,11 +188,12 @@ impl StateMachineStore {
         }
         self.data.last_applied_log_id = snapshot.meta.last_log_id;
         self.data.last_membership = snapshot.meta.last_membership.clone();
-
+        tracing::error!("Done updating from snapshot");
         Ok(())
     }
 
     async fn hydrate_chunk(&self, chunk: ChunkReference, signature: SnapshotSignature<u64>) -> Result<(), StorageError<<TypeConfig as RaftTypeConfig>::NodeId>> {
+        tracing::error!("Hydrating from chunk");
         // The snapshot data now contains the serialized chunk ID.
         let chunk_id: String = chunk.id;
         // Retrieve the chunk from the chunk store.
@@ -207,6 +212,7 @@ impl StateMachineStore {
         let mut chunk_ids = self.data.merged_chunks.write().await;
         // update the chunk state to reflect that we've hydrated this chunk
         chunk_ids.insert(chunk_id);
+        tracing::error!("Done hydrating from chunk");
         Ok(())
     }
 
@@ -405,24 +411,17 @@ mod tests {
     #[tokio::test]
     async fn test_update_state_machine_hydrates_chunk() {
         let (mut store, _temp_dir) = setup_test_store().await;
+        // Ensure merged_chunks is empty.
+        {
+            let merged = store.data.merged_chunks.read().await;
+            assert!(merged.is_empty());
+        }
         // Insert a new write and build snapshot.
         {
             let mut new_writes = store.data.new_writes_kvs.write().await;
             new_writes.insert("key3".to_string(), "value3".to_string());
         }
         let snapshot = store.build_snapshot().await.unwrap();
-
-        // Before hydration, clear historical_kvs.
-        {
-            let mut hist = store.data.historical_kvs.write().await;
-            hist.clear();
-        }
-        // Ensure merged_chunks is empty.
-        {
-            let merged = store.data.merged_chunks.read().await;
-            assert!(merged.is_empty());
-        }
-
 
         let stored = StoredSnapshot {
             meta: snapshot.meta,

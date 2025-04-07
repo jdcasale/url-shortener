@@ -31,6 +31,9 @@ impl ChunkStore for LocalChunkStore {
     async fn put_chunk(&self, chunk_id: &str, data: &[u8]) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut path = self.directory.clone();
         path.push(chunk_id);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
         // Write the data to the file asynchronously.
         fs::write(path, data).await?;
         Ok(())

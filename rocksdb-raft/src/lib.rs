@@ -54,10 +54,11 @@ where
 {
     // Create a configuration for the raft instance.
     let config = Config {
-        heartbeat_interval: 250,
-        election_timeout_min: 500,
+        heartbeat_interval: 500,
+        election_timeout_min: 1000,
         election_timeout_max: 1500,
-        max_payload_entries: 100,
+        max_payload_entries: 10,
+        // snapshot_policy: SnapshotPolicy::LogsSinceLast(200u64),
         ..Default::default()
     };
 

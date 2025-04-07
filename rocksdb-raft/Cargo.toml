@@ -35,6 +35,7 @@ tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.0", features = ["env-filter"] }
 async-trait = "0.1.81"
 sha2 = "0.9.9"
+dashmap = "5.5.3"
 
 
 [dev-dependencies]
