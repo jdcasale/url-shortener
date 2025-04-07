@@ -1,17 +1,18 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::io::Cursor;
-use std::sync::Arc;
-use openraft::{AnyError, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend, RaftSnapshotBuilder, RaftTypeConfig, Snapshot, SnapshotMeta, StorageError, StorageIOError, StoredMembership};
-use openraft::storage::{RaftStateMachine, SnapshotSignature};
-use rocksdb::{ColumnFamily, DB};
-use tokio::sync::RwLock;
 use crate::network::callback_network_impl::{Node, NodeId};
-use crate::store::types::{LongUrlEntry, TypeConfig};
-use crate::store::storage::{RaftResponse, StoredSnapshot};
-use crate::{typ, SnapshotData};
 use crate::store::chunk_reference::{ChunkReference, SnapshotManifest};
 use crate::store::chunk_storage::local::{ChunkStore, LocalChunkStore};
 use crate::store::log_storage::StorageResult;
+use crate::store::storage::{RaftResponse, StoredSnapshot};
+use crate::store::types::{LongUrlEntry, TypeConfig};
+use crate::{typ, SnapshotData};
+use openraft::storage::{RaftStateMachine, SnapshotSignature};
+use openraft::{AnyError, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend, RaftSnapshotBuilder, RaftTypeConfig, Snapshot, SnapshotMeta, StorageError, StorageIOError, StoredMembership};
+use rocksdb::{ColumnFamily, DB};
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Cursor;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use crate::store::error_bullshit::CustomAnyError;
 
 // A helper function to compute a SHA-256 hash of the data.
 fn compute_hash(data: &[u8]) -> String {
@@ -74,17 +75,17 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
 
         // Compute a content-addressable chunk ID.
         let chunk_id = compute_hash(&kv_json);
-        // let meta = SnapshotMeta {
-        //     last_log_id: self.data.last_applied_log_id,
-        //     last_membership: self.data.last_membership.clone(),
-        //     snapshot_id: chunk_id.clone(), // now a snapshot signature rather than an arbitrary String
-        // };
+        let meta = SnapshotMeta {
+            last_log_id: self.data.last_applied_log_id,
+            last_membership: self.data.last_membership.clone(),
+            snapshot_id: chunk_id.clone(), // now a snapshot signature rather than an arbitrary String
+        };
         // Upload the blob to the chunk store.
-        self.chunk_store.put_chunk(&chunk_id, &kv_json)
-            .await.unwrap();
-            // .map_err(|e| StorageError::IO {
-            //     source: StorageIOError::write_snapshot(Some(meta.signature()), &e),
-            // })?;
+        let result = self.chunk_store.put_chunk(&chunk_id, &kv_json).await;
+        result
+            .map_err(|e| StorageError::IO {
+                source: StorageIOError::write_snapshot(Some(meta.signature()), &CustomAnyError::from(e)),
+            })?;
 
         // Build the snapshot metadata.
         let snapshot_id = if let Some(last) = last_applied_log {
@@ -99,8 +100,16 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
             snapshot_id,
         };
 
+        let mut chunks: Vec<ChunkReference> = self.data.merged_chunks
+            .read()
+            .await
+            .iter()
+            .map(|cid| ChunkReference { id: (*cid.clone()).parse().unwrap() }).collect();
+        let new_chunk = ChunkReference { id: chunk_id};
+        chunks.push(new_chunk);
+        let manifest = SnapshotManifest {chunks};
         // Instead of embedding the full blob, we serialize the chunk ID as our manifest.
-        let manifest = serde_json::to_vec(&chunk_id)
+        let manifest = serde_json::to_vec(&manifest)
             .map_err(|e| StorageIOError::read_state_machine(&e))?;
 
         let snapshot = StoredSnapshot {
@@ -108,10 +117,16 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
             data: manifest.clone(),
         };
 
+        // move the keys corresponding to this chunk into our history map
+        let mut history = self.data.historical_kvs.write().await;
+        for (key, val) in self.data.new_writes_kvs.read().await.iter() {
+            history.insert(key.to_string(), val.to_string());
+        }
+
         self.set_current_snapshot_(snapshot)?;
-        let new_writes = self.data.new_writes_kvs.write().await;
         // nuke the new_writes map after
-        new_writes.clone().clear();
+        self.data.new_writes_kvs.write().await.clear();
+
         let snapshot = Snapshot {
             meta,
             snapshot: Box::new(Cursor::new(manifest)),
@@ -154,11 +169,18 @@ impl StateMachineStore {
         let manifest: SnapshotManifest = serde_json::from_slice(&snapshot.data)
             .map_err(|e| StorageIOError::read_snapshot(Some(snapshot.meta.signature()), &e))?;
 
-        let chunk_ids = self.data.merged_chunks.read().await;
-        for chunk in manifest.chunks {
-            if !chunk_ids.contains(&chunk.id) {
-                self.hydrate_chunk(chunk, snapshot.meta.signature()).await?;
-            }
+        // Collect chunks that need hydration.
+        let chunks_to_hydrate: Vec<ChunkReference> = {
+            let merged = self.data.merged_chunks.read().await;
+            manifest.chunks
+                .into_iter()
+                .filter(|chunk| !merged.contains(&chunk.id))
+                .collect()
+        };
+
+        // Now, for each chunk that isn’t merged, hydrate it.
+        for chunk in chunks_to_hydrate {
+            self.hydrate_chunk(chunk, snapshot.meta.signature()).await?;
         }
         self.data.last_applied_log_id = snapshot.meta.last_log_id;
         self.data.last_membership = snapshot.meta.last_membership.clone();
@@ -171,10 +193,10 @@ impl StateMachineStore {
         let chunk_id: String = chunk.id;
         // Retrieve the chunk from the chunk store.
         let chunk_data = self.chunk_store.get_chunk(&chunk_id)
-            .await.unwrap();
-            // .map_err(|e| StorageError::IO {
-            //     source: StorageIOError::read_snapshot(Some(signature), &e),
-            // })?;
+            .await
+            .map_err(|e| StorageError::IO {
+                source: StorageIOError::read_snapshot(Some(signature.clone()), &CustomAnyError::from(e)),
+            })?;
         let chunk_kvs: BTreeMap<String, String> = serde_json::from_slice(&chunk_data)
             .map_err(|e| StorageIOError::read_snapshot(Some(signature), &e))?;
 
@@ -182,9 +204,9 @@ impl StateMachineStore {
         for (key, value) in chunk_kvs {
             current_kvs.insert(key, value);
         }
-        let chunk_ids = self.data.merged_chunks.write().await;
+        let mut chunk_ids = self.data.merged_chunks.write().await;
         // update the chunk state to reflect that we've hydrated this chunk
-        chunk_ids.clone().insert(chunk_id);
+        chunk_ids.insert(chunk_id);
         Ok(())
     }
 
@@ -305,3 +327,146 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::chunk_reference::SnapshotManifest;
+    use openraft::{CommittedLeaderId, Entry, EntryPayload, LogId};
+    use rocksdb::{ColumnFamilyDescriptor, Options, DB};
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    /// Sets up a temporary RocksDB instance and a LocalChunkStore.
+    async fn setup_test_store() -> (StateMachineStore, tempfile::TempDir) {
+        // Create a temporary directory for RocksDB and chunks.
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("db");
+        std::fs::create_dir_all(&db_path).unwrap();
+
+        // Configure RocksDB with a couple of column families.
+        let mut db_opts = Options::default();
+        db_opts.create_if_missing(true);
+        db_opts.create_missing_column_families(true);
+        let cf_store = ColumnFamilyDescriptor::new("store", Options::default());
+        let cf_snapshot = ColumnFamilyDescriptor::new("snapshot", Options::default());
+        let db = DB::open_cf_descriptors(&db_opts, db_path.clone(), vec![cf_store, cf_snapshot])
+            .unwrap();
+        let db = Arc::new(db);
+
+        // Create a temporary directory for chunks.
+        let chunk_dir = temp_dir.path().join("chunks");
+        std::fs::create_dir_all(&chunk_dir).unwrap();
+        let local_chunk_store = LocalChunkStore::new(chunk_dir);
+
+        // Create the StateMachineStore.
+        let store = StateMachineStore::new(db, local_chunk_store).await.unwrap();
+        (store, temp_dir)
+    }
+
+    #[tokio::test]
+    async fn test_build_snapshot_clears_new_writes_and_uploads_chunk() {
+        let (mut store, _temp_dir) = setup_test_store().await;
+        // Insert some new writes.
+        {
+            let mut new_writes = store.data.new_writes_kvs.write().await;
+            new_writes.insert("key1".to_string(), "value1".to_string());
+            new_writes.insert("key2".to_string(), "value2".to_string());
+        }
+        assert!(store.data.merged_chunks.read().await.is_empty());
+        // Build a snapshot.
+        let snapshot = store.build_snapshot().await.unwrap();
+
+        // After snapshotting, the new_writes_kvs should be empty.
+        {
+            let new_writes = store.data.new_writes_kvs.read().await;
+            assert!(new_writes.is_empty(), "new_writes_kvs was not cleared");
+        }
+
+        // Check that the snapshot meta has been set.
+        assert!(!snapshot.meta.snapshot_id.is_empty());
+
+        // Verify that the chunk was uploaded in the local chunk store.
+        // Recompute the expected chunk id from the new writes.
+        let mut expected_map = BTreeMap::new();
+        expected_map.insert("key1".to_string(), "value1".to_string());
+        expected_map.insert("key2".to_string(), "value2".to_string());
+        let expected_json = serde_json::to_vec(&expected_map).unwrap();
+        let expected_chunk_id = compute_hash(&expected_json);
+        let stored_blob = store.chunk_store.get_chunk(&expected_chunk_id).await.unwrap();
+        assert_eq!(stored_blob, expected_json, "Chunk store does not contain the expected data");
+
+        // The snapshot data is a manifest; deserialize it.
+        let manifest: SnapshotManifest = serde_json::from_slice(&snapshot.snapshot.into_inner())
+            .expect("Failed to deserialize manifest");
+        assert!(manifest.chunks.len() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_update_state_machine_hydrates_chunk() {
+        let (mut store, _temp_dir) = setup_test_store().await;
+        // Insert a new write and build snapshot.
+        {
+            let mut new_writes = store.data.new_writes_kvs.write().await;
+            new_writes.insert("key3".to_string(), "value3".to_string());
+        }
+        let snapshot = store.build_snapshot().await.unwrap();
+
+        // Before hydration, clear historical_kvs.
+        {
+            let mut hist = store.data.historical_kvs.write().await;
+            hist.clear();
+        }
+        // Ensure merged_chunks is empty.
+        {
+            let merged = store.data.merged_chunks.read().await;
+            assert!(merged.is_empty());
+        }
+
+
+        let stored = StoredSnapshot {
+            meta: snapshot.meta,
+            data: snapshot.snapshot.into_inner(),
+        };
+
+        // Update (hydrate) the state machine from the snapshot.
+        store.update_state_machine_(stored).await.unwrap();
+
+        // Check that historical_kvs now contains the hydrated data.
+        {
+            let hist = store.data.historical_kvs.read().await;
+            assert_eq!(hist.get("key3").unwrap(), "value3");
+        }
+
+        // Compute the expected chunk id.
+        let mut expected_map = BTreeMap::new();
+        expected_map.insert("key3".to_string(), "value3".to_string());
+        let expected_json = serde_json::to_vec(&expected_map).unwrap();
+        let expected_chunk_id = compute_hash(&expected_json);
+        // Verify that merged_chunks now contains the expected chunk id.
+        {
+            let merged = store.data.merged_chunks.read().await;
+            assert!(merged.contains(&expected_chunk_id), "Merged chunks does not contain the expected chunk id");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_apply_entries_updates_new_writes() {
+        let (mut store, _temp_dir) = setup_test_store().await;
+        // Create a test log entry.
+        let entry = Entry {
+            log_id: LogId::new(CommittedLeaderId::new(1, 1), 1),
+            payload: EntryPayload::Normal(LongUrlEntry::new(123, "http://example.com".to_string(), 1)),
+        };
+        let responses = store.apply(vec![entry]).await.unwrap();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0].clone().short_url.unwrap(), "123");
+
+        // Verify that new_writes_kvs now contains the applied entry.
+        {
+            let new_writes = store.data.new_writes_kvs.read().await;
+            assert_eq!(new_writes.get("123").unwrap(), "http://example.com");
+        }
+    }
+}
+

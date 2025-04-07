@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: url-shortener-server/Dockerfile
-    command: --node-id 1 --leader-id 1 --http-addr "url-shortener-1:8080" --raft-rpc-addr "0.0.0.0:21001" --data-dir "/data"
+    command: --node-id 1 --leader-id 1 --http-addr "url-shortener-1:8080" --data-dir "/data"
     environment:
       - RUST_LOG=info,url_shortener_server=debug,rocksdb_raft=debug
     ports:
@@ -13,6 +13,7 @@ services:
       - "21001:21001"  # Raft RPC
     volumes:
       - url_shortener_1_data:/data
+      - shared_data:/chunk_store
     networks:
       - url_shortener_network
     healthcheck:
@@ -28,7 +29,7 @@ services:
     build:
       context: .
       dockerfile: url-shortener-server/Dockerfile
-    command: --node-id 2 --leader-id 1 --http-addr "url-shortener-2:8080" --raft-rpc-addr "0.0.0.0:21001" --data-dir "/data"
+    command: --node-id 2 --leader-id 1 --http-addr "url-shortener-2:8080" --data-dir "/data"
     environment:
       - RUST_LOG=info,url_shortener_server=debug,rocksdb_raft=debug
     ports:
@@ -36,6 +37,7 @@ services:
       - "21002:21001"  # Raft RPC
     volumes:
       - url_shortener_2_data:/data
+      - shared_data:/chunk_store
     networks:
       - url_shortener_network
     depends_on:
@@ -53,7 +55,7 @@ services:
     build:
       context: .
       dockerfile: url-shortener-server/Dockerfile
-    command: --node-id 3 --leader-id 1 --http-addr "url-shortener-3:8080" --raft-rpc-addr "0.0.0.0:21001" --data-dir "/data"
+    command: --node-id 3 --leader-id 1 --http-addr "url-shortener-3:8080" --data-dir "/data"
     environment:
       - RUST_LOG=info,url_shortener_server=debug,rocksdb_raft=debug
     ports:
@@ -61,6 +63,7 @@ services:
       - "21003:21001"  # Raft RPC
     volumes:
       - url_shortener_3_data:/data
+      - shared_data:/chunk_store
     networks:
       - url_shortener_network
     depends_on:
@@ -99,6 +102,7 @@ volumes:
   url_shortener_1_data:
   url_shortener_2_data:
   url_shortener_3_data:
+  shared_data:
 
 networks:
   url_shortener_network:

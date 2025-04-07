@@ -186,10 +186,20 @@ async fn lookup_url<'a>(
     // }
     let hash_str = hash.to_string();
 
-    let guard = shared_state.raft.historical_kvs.read().await;
-    let from_kvs = guard.get(&hash_str);
+    let recent = shared_state.raft.new_writes_kvs.read().await;
+
+    let from_recent = recent.get(&hash_str);
     // let from_kvs = shared_state.rocks_app.get_entry(hash);
-    if let Some(long_url) = from_kvs {
+    if let Some(long_url) = from_recent {
+        let resp = LookupUrlResponse{ location: long_url.clone()};
+        return HttpResponse::Ok()
+            .content_type(APP_TYPE_JSON)
+            .json(resp)
+    }
+    let history = shared_state.raft.historical_kvs.read().await;
+    let from_history = history.get(&hash_str);
+    // let from_kvs = shared_state.rocks_app.get_entry(hash);
+    if let Some(long_url) = from_history {
         let resp = LookupUrlResponse{ location: long_url.clone()};
         return HttpResponse::Ok()
             .content_type(APP_TYPE_JSON)

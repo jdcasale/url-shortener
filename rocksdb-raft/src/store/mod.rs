@@ -4,3 +4,4 @@ pub mod state_machine;
 pub mod types;
 pub mod chunk_reference;
 mod chunk_storage;
+mod error_bullshit;
