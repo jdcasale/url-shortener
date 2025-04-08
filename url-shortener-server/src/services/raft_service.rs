@@ -9,9 +9,10 @@ use crate::errors::ShortenerErr;
 #[post("/raft/append_entries")]
 async fn append_entries(req: Json<AppendEntriesRequest<TypeConfig>>,
                         shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
+    tracing::info!("Append Entries {:?}", req);
     shared_state.raft.raft.append_entries(req.0)
         .await
-        .map_err(ShortenerErr::RaftError)
+        .map_err(ShortenerErr::Raft)
         .map(|resp| HttpResponse::Ok().json(resp))
 
 }
@@ -21,7 +22,7 @@ async fn install_snapshot(req: Json<InstallSnapshotRequest<TypeConfig>>,
                           shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
     shared_state.raft.raft.install_snapshot(req.0)
         .await
-        .map_err(ShortenerErr::RaftSnapshotError)
+        .map_err(ShortenerErr::RaftSnapshot)
         .map(|resp| HttpResponse::Ok().json(resp))
 }
 
@@ -29,7 +30,7 @@ async fn install_snapshot(req: Json<InstallSnapshotRequest<TypeConfig>>,
 async fn vote(req: Json<VoteRequest<u64>>, shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
     shared_state.raft.raft.vote(req.0)
         .await
-        .map_err(ShortenerErr::RaftError)
+        .map_err(ShortenerErr::Raft)
         .map(|resp| HttpResponse::Ok().json(resp))
 }
 

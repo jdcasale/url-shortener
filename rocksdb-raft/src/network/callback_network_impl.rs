@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use openraft::raft::{AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse, VoteRequest, VoteResponse};
 use openraft::{RaftNetwork, Vote, LeaderId, RaftTypeConfig, RaftNetworkFactory};
 use openraft::error::{InstallSnapshotError, RaftError, RPCError};
@@ -8,7 +9,7 @@ use crate::store::types::{TypeConfig};
 
 #[derive(Clone)]
 pub struct CallbackRaftNetwork {
-    callbacks: Option<RaftManagementRPCClient>
+    callbacks: Option<Arc<RwLock<RaftManagementRPCClient>>>
 }
 
 impl Default for CallbackRaftNetwork {
@@ -23,7 +24,7 @@ impl CallbackRaftNetwork {
     }
 
     pub fn set_callbacks(&mut self, callbacks: RaftManagementRPCClient) {
-        self.callbacks = Some(callbacks);
+        self.callbacks = Some(Arc::new(RwLock::new(callbacks)));
     }
 
     // Create a new network instance for a specific target node
@@ -31,7 +32,7 @@ impl CallbackRaftNetwork {
         let base_url = format!("http://{}", node.addr);
         let client = RaftManagementRPCClient::new(base_url);
         CallbackRaftNetwork {
-            callbacks: Some(client)
+            callbacks: Some(Arc::new(RwLock::new(client)))
         }
     }
 }
@@ -46,9 +47,13 @@ impl RaftNetwork<TypeConfig> for Arc<CallbackRaftNetwork> {
         rpc: AppendEntriesRequest<TypeConfig>,
         _option: RPCOption,
     ) -> Result<AppendEntriesResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId>>> {
-        if let Some(callbacks) = &self.callbacks {
-            callbacks.append_entries(rpc).await
+        if let Some(callbacks_lock) = &self.callbacks {
+            callbacks_lock.write()
+                .await
+                .append_entries(rpc)
+                .await
         } else {
+            tracing::error!("No RPC layer configured.---------------------------------");
             Ok(AppendEntriesResponse::Success)
         }
     }
@@ -58,8 +63,11 @@ impl RaftNetwork<TypeConfig> for Arc<CallbackRaftNetwork> {
         rpc: InstallSnapshotRequest<TypeConfig>,
         _option: RPCOption,
     ) -> Result<InstallSnapshotResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId, InstallSnapshotError>>> {
-        if let Some(callbacks) = &self.callbacks {
-            callbacks.install_snapshot(rpc).await
+        if let Some(callbacks_lock) = &self.callbacks {
+            callbacks_lock.write()
+                .await
+                .install_snapshot(rpc)
+                .await
         } else {
             Ok(InstallSnapshotResponse {
                 vote: Vote {
@@ -75,9 +83,12 @@ impl RaftNetwork<TypeConfig> for Arc<CallbackRaftNetwork> {
         rpc: VoteRequest<NodeId>,
         _option: RPCOption,
     ) -> Result<VoteResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId>>> {
-        if let Some(callbacks) = &self.callbacks {
+        if let Some(callbacks_lock) = &self.callbacks {
             // Forward the vote request to the target node
-            callbacks.vote(rpc).await
+            callbacks_lock.write()
+                .await
+                .vote(rpc)
+                .await
         } else {
             // If no callbacks are set, this is likely the target node
             // Grant the vote if the term is higher than our current term

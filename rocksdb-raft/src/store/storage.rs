@@ -65,7 +65,9 @@ pub async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, StateMachineS
     let db = Arc::new(db);
 
     let log_store = LogStore { db: db.clone() };
+    // TODO(@jcasale): hard-coded path needs to be passed as config
     let chunk_store = LocalChunkStore::new("/chunk_store/chunks".parse().unwrap());
+    // let chunk_store = LocalChunkStore::new("/tmp/chunk_store/chunks".parse().unwrap());
     let sm_store = StateMachineStore::new(db, chunk_store).await.unwrap();
 
     (log_store, sm_store)

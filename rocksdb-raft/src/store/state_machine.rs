@@ -64,7 +64,7 @@ pub struct StateMachineData {
 impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
     /// Builds a new snapshot of the current state machine state.
     async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
-        tracing::error!("Building snapshot");
+        tracing::info!("Building snapshot");
         let last_applied_log = self.data.last_applied_log_id;
         let last_membership = self.data.last_membership.clone();
 
@@ -133,7 +133,7 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
             meta,
             snapshot: Box::new(Cursor::new(manifest)),
         };
-        tracing::error!("Done building snapshot");
+        tracing::info!("Done building snapshot");
         Ok(snapshot)
     }
 }
@@ -405,7 +405,7 @@ mod tests {
         // The snapshot data is a manifest; deserialize it.
         let manifest: SnapshotManifest = serde_json::from_slice(&snapshot.snapshot.into_inner())
             .expect("Failed to deserialize manifest");
-        assert!(manifest.chunks.len() > 0);
+        assert!(!manifest.chunks.is_empty());
     }
 
     #[tokio::test]

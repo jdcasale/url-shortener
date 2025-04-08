@@ -142,7 +142,7 @@ async fn forward_request_to_target(
     target: BasicNode
 ) -> HttpResponse {
     // Retrieve the leader's address from the membership metrics.
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::default();
     let leader_url = format!("http://{}", target.addr);
     let forward_endpoint = format!("{}/submit", leader_url);
     match client.post(&forward_endpoint).json(req).send().await {
@@ -175,7 +175,7 @@ async fn lookup_url<'a>(
 
     let to_hash = u64::from_str_radix(&from_path, 16);
     if let Err(e) = to_hash {
-        return HttpResponse::from_error(ShortenerErr::HashParsingError(e));
+        return HttpResponse::from_error(ShortenerErr::HashParsing(e));
     }
     let hash = to_hash.expect("already checked");
     // if let Some(long_url) = shared_state.long_url_lookup.get(&hash) {
@@ -216,7 +216,7 @@ async fn redirect(
 ) -> impl Responder {
     let to_hash = u64::from_str_radix(&hash, 16);
     if let Err(e) = to_hash {
-        return HttpResponse::from_error(ShortenerErr::HashParsingError(e));
+        return HttpResponse::from_error(ShortenerErr::HashParsing(e));
     }
 
     let hash = to_hash.expect("already checked");
