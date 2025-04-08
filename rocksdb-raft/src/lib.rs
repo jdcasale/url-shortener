@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
-use openraft::{BasicNode, Config};
+use openraft::{BasicNode, Config, SnapshotPolicy};
 
 use crate::app::App;
 use network::callback_network_impl::NodeId;
@@ -39,7 +39,7 @@ pub mod typ {
     pub type ClientWriteResponse = openraft::raft::ClientWriteResponse<TypeConfig>;
 }
 
-pub type ExampleRaft = openraft::Raft<TypeConfig>;
+pub type RaftImpl = openraft::Raft<TypeConfig>;
 
 type Server = tide::Server<Arc<App>>;
 
@@ -54,10 +54,12 @@ where
 {
     // Create a configuration for the raft instance.
     let config = Config {
-        heartbeat_interval: 250,
-        election_timeout_min: 500,
+        heartbeat_interval: 500,
+        election_timeout_min: 1000,
         election_timeout_max: 1500,
-        max_payload_entries: 100,
+        max_payload_entries: 10,
+        install_snapshot_timeout: 1000,
+        snapshot_policy: SnapshotPolicy::LogsSinceLast(100_000u64),
         ..Default::default()
     };
 
@@ -65,7 +67,8 @@ where
 
     let (log_store, state_machine_store) = new_storage(&dir).await;
 
-    let kvs = state_machine_store.data.kvs.clone();
+    let history = state_machine_store.data.historical_kvs.clone();
+    let new_writes = state_machine_store.data.new_writes_kvs.clone();
 
     // Create a local raft instance.
     let raft = openraft::Raft::new(node_id, config.clone(), network, log_store, state_machine_store).await.unwrap();
@@ -89,7 +92,8 @@ where
         id: node_id,
         api_addr: http_addr.clone(),
         raft,
-        key_values: kvs,
+        historical_kvs: history,
+        new_writes_kvs: new_writes,
         config,
     })
 }

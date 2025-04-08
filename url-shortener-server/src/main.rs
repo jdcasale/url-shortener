@@ -66,16 +66,15 @@ async fn main() -> std::io::Result<()> {
 
     // Spawn the server without awaiting immediately.
     let server_handle = actix_web::rt::spawn(server);
+    // Await the server task so that your application keeps running.
+    server_handle.await??;
 
-    // Now that the server is online (or being started), create the client handle.
+    // Now that the server is online, create the client handle.
     let raft_client = network::management_rpc_client::RaftManagementRPCClient::new(args.http_addr.clone());
 
     // Inject the client callbacks into your network implementation.
     // For example, if NoopRaftNetwork has a setter:
     raft_network.set_callbacks(raft_client);
 
-    // Continue with the rest of your program.
-    // Await the server task so that your application keeps running.
-    server_handle.await??;
     Ok(())
 }

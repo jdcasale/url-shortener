@@ -15,7 +15,7 @@ impl RaftManagementRPCClient {
     pub fn new(base_url: String) -> Self {
         Self {
             base_url,
-            client: reqwest::Client::new(),
+            client: reqwest::Client::default()
         }
     }
 

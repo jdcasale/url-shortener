@@ -10,6 +10,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use crate::network::callback_network_impl::Node;
 use crate::NodeId;
+use crate::store::chunk_storage::local::LocalChunkStore;
 use crate::store::log_storage::LogStore;
 use crate::store::state_machine::StateMachineStore;
 
@@ -57,13 +58,17 @@ pub async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, StateMachineS
     db_opts.create_if_missing(true);
 
     let store = ColumnFamilyDescriptor::new("store", Options::default());
+    let new_writes = ColumnFamilyDescriptor::new("new_writes", Options::default());
     let logs = ColumnFamilyDescriptor::new("logs", Options::default());
 
-    let db = DB::open_cf_descriptors(&db_opts, db_path, vec![store, logs]).unwrap();
+    let db = DB::open_cf_descriptors(&db_opts, db_path, vec![store, new_writes, logs]).unwrap();
     let db = Arc::new(db);
 
     let log_store = LogStore { db: db.clone() };
-    let sm_store = StateMachineStore::new(db).await.unwrap();
+    // TODO(@jcasale): hard-coded path needs to be passed as config
+    let chunk_store = LocalChunkStore::new("/chunk_store/chunks".parse().unwrap());
+    // let chunk_store = LocalChunkStore::new("/tmp/chunk_store/chunks".parse().unwrap());
+    let sm_store = StateMachineStore::new(db, chunk_store).await.unwrap();
 
     (log_store, sm_store)
 }

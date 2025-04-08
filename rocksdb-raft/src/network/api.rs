@@ -35,7 +35,7 @@ async fn write(mut req: Request<Arc<App>>) -> tide::Result {
 
 async fn read(mut req: Request<Arc<App>>) -> tide::Result {
     let key: String = req.body_json().await?;
-    let kvs = req.state().key_values.read().await;
+    let kvs = req.state().historical_kvs.read().await;
     let value = kvs.get(&key);
 
     let res: Result<String, Infallible> = Ok(value.cloned().unwrap_or_default());
@@ -48,7 +48,7 @@ async fn consistent_read(mut req: Request<Arc<App>>) -> tide::Result {
     match ret {
         Ok(_) => {
             let key: String = req.body_json().await?;
-            let kvs = req.state().key_values.read().await;
+            let kvs = req.state().historical_kvs.read().await;
 
             let value = kvs.get(&key);
 

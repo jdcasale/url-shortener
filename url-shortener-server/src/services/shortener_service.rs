@@ -40,7 +40,7 @@ fn calculate_hash(t: &str) -> u64 {
     s.finish()
 }
 
-async fn get_leader_info(shared_state: &web::Data<AppStateWithCounter>,) -> Result<(NodeId, Node), actix_web::Error> {
+async fn get_leader_info(shared_state: &Data<AppStateWithCounter>,) -> Result<(NodeId, Node), actix_web::Error> {
     let metrics = shared_state.raft.raft.metrics().borrow().clone();
     let leader_id = metrics.current_leader.ok_or_else(|| {
         actix_web::error::ErrorInternalServerError("No leader elected yet")
@@ -142,7 +142,7 @@ async fn forward_request_to_target(
     target: BasicNode
 ) -> HttpResponse {
     // Retrieve the leader's address from the membership metrics.
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::default();
     let leader_url = format!("http://{}", target.addr);
     let forward_endpoint = format!("{}/submit", leader_url);
     match client.post(&forward_endpoint).json(req).send().await {
@@ -170,12 +170,12 @@ async fn forward_request_to_target(
 #[get("/lookup/{hash}")]
 async fn lookup_url<'a>(
     from_path: web::Path<String>,
-    shared_state: web::Data<AppStateWithCounter>
+    shared_state: Data<AppStateWithCounter>
 ) -> impl Responder {
 
     let to_hash = u64::from_str_radix(&from_path, 16);
     if let Err(e) = to_hash {
-        return HttpResponse::from_error(ShortenerErr::HashParsingError(e));
+        return HttpResponse::from_error(ShortenerErr::HashParsing(e));
     }
     let hash = to_hash.expect("already checked");
     // if let Some(long_url) = shared_state.long_url_lookup.get(&hash) {
@@ -186,10 +186,20 @@ async fn lookup_url<'a>(
     // }
     let hash_str = hash.to_string();
 
-    let guard = shared_state.raft.key_values.read().await;
-    let from_kvs = guard.get(&hash_str);
+    let recent = shared_state.raft.new_writes_kvs.read().await;
+
+    let from_recent = recent.get(&hash_str);
     // let from_kvs = shared_state.rocks_app.get_entry(hash);
-    if let Some(long_url) = from_kvs {
+    if let Some(long_url) = from_recent {
+        let resp = LookupUrlResponse{ location: long_url.clone()};
+        return HttpResponse::Ok()
+            .content_type(APP_TYPE_JSON)
+            .json(resp)
+    }
+    let history = shared_state.raft.historical_kvs.read().await;
+    let from_history = history.get(&hash_str);
+    // let from_kvs = shared_state.rocks_app.get_entry(hash);
+    if let Some(long_url) = from_history {
         let resp = LookupUrlResponse{ location: long_url.clone()};
         return HttpResponse::Ok()
             .content_type(APP_TYPE_JSON)
@@ -206,7 +216,7 @@ async fn redirect(
 ) -> impl Responder {
     let to_hash = u64::from_str_radix(&hash, 16);
     if let Err(e) = to_hash {
-        return HttpResponse::from_error(ShortenerErr::HashParsingError(e));
+        return HttpResponse::from_error(ShortenerErr::HashParsing(e));
     }
 
     let hash = to_hash.expect("already checked");
