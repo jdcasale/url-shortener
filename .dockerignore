@@ -1,2 +1,19 @@
 fly.toml
-.git/
+
+# Ignore the compiled target directory
+/target
+**/target
+
+# Ignore version control directories
+.git
+.gitignore
+
+# Ignore local configuration files
+.env
+*.log
+
+# If you have any other large directories that are not needed for build
+node_modules
+.idea
+.vscode
+.idea
