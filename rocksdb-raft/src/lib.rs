@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
-use openraft::{BasicNode, Config};
+use openraft::{BasicNode, Config, SnapshotPolicy};
 
 use crate::app::App;
 use network::callback_network_impl::NodeId;
@@ -58,7 +58,8 @@ where
         election_timeout_min: 1000,
         election_timeout_max: 1500,
         max_payload_entries: 10,
-        // snapshot_policy: SnapshotPolicy::LogsSinceLast(200u64),
+        install_snapshot_timeout: 1000,
+        snapshot_policy: SnapshotPolicy::LogsSinceLast(100_000u64),
         ..Default::default()
     };
 

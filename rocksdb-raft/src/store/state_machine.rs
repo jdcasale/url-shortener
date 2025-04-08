@@ -167,7 +167,7 @@ impl StateMachineStore {
 
     /// Updates the state machine with data from a snapshot.
     async fn update_state_machine_(&mut self, snapshot: StoredSnapshot) -> Result<(), StorageError<NodeId>> {
-        tracing::error!("Updating from snapshot");
+        tracing::info!("Updating from snapshot");
 
         // Deserialize the manifest from snapshot metadata.
         let manifest: SnapshotManifest = serde_json::from_slice(&snapshot.data)
@@ -188,12 +188,12 @@ impl StateMachineStore {
         }
         self.data.last_applied_log_id = snapshot.meta.last_log_id;
         self.data.last_membership = snapshot.meta.last_membership.clone();
-        tracing::error!("Done updating from snapshot");
+        tracing::info!("Done updating from snapshot");
         Ok(())
     }
 
     async fn hydrate_chunk(&self, chunk: ChunkReference, signature: SnapshotSignature<u64>) -> Result<(), StorageError<<TypeConfig as RaftTypeConfig>::NodeId>> {
-        tracing::error!("Hydrating from chunk");
+        tracing::info!("Hydrating from chunk");
         // The snapshot data now contains the serialized chunk ID.
         let chunk_id: String = chunk.id;
         // Retrieve the chunk from the chunk store.
@@ -212,7 +212,7 @@ impl StateMachineStore {
         let mut chunk_ids = self.data.merged_chunks.write().await;
         // update the chunk state to reflect that we've hydrated this chunk
         chunk_ids.insert(chunk_id);
-        tracing::error!("Done hydrating from chunk");
+        tracing::info!("Done hydrating from chunk");
         Ok(())
     }
 
