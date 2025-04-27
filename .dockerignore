@@ -9,7 +9,7 @@ fly.toml
 .gitignore
 
 # Ignore local configuration files
-.env
+.env_backup
 *.log
 
 # If you have any other large directories that are not needed for build

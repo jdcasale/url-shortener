@@ -8,12 +8,18 @@ services:
     command: --node-id 1 --leader-id 1 --http-addr "url-shortener-1:8080" --data-dir "/data"
     environment:
       - RUST_LOG=info,url_shortener_server=debug,rocksdb_raft=debug
+      - AWS_SDK_LOAD_CONFIG=1
+      - AWS_PROFILE=default
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
     ports:
       - "8080:8080"  # HTTP API
       - "21001:21001"  # Raft RPC
     volumes:
       - url_shortener_1_data:/data
       - shared_data:/chunk_store
+#      - ~/.aws:/root/.aws:ro
     networks:
       - url_shortener_network
     healthcheck:
@@ -32,12 +38,18 @@ services:
     command: --node-id 2 --leader-id 1 --http-addr "url-shortener-2:8080" --data-dir "/data"
     environment:
       - RUST_LOG=info,url_shortener_server=debug,rocksdb_raft=debug
+      - AWS_SDK_LOAD_CONFIG=1
+      - AWS_PROFILE=default
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
     ports:
       - "8081:8080"  # HTTP API
       - "21002:21001"  # Raft RPC
     volumes:
       - url_shortener_2_data:/data
       - shared_data:/chunk_store
+#      - ~/.aws:/root/.aws:ro
     networks:
       - url_shortener_network
     depends_on:
@@ -58,12 +70,18 @@ services:
     command: --node-id 3 --leader-id 1 --http-addr "url-shortener-3:8080" --data-dir "/data"
     environment:
       - RUST_LOG=info,url_shortener_server=debug,rocksdb_raft=debug
+      - AWS_SDK_LOAD_CONFIG=1
+      - AWS_PROFILE=default
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
     ports:
       - "8082:8080"  # HTTP API
       - "21003:21001"  # Raft RPC
     volumes:
       - url_shortener_3_data:/data
       - shared_data:/chunk_store
+#      - ~/.aws:/root/.aws:ro
     networks:
       - url_shortener_network
     depends_on:
@@ -78,6 +96,27 @@ services:
       retries: 10
       start_period: 5s
     mem_limit: 12g
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"  # MinIO API
+      - "9001:9001"  # MinIO Console
+    volumes:
+      - minio_data:/data
+    environment:
+      - MINIO_ROOT_USER=${AWS_ACCESS_KEY_ID}
+      - MINIO_ROOT_PASSWORD=${AWS_SECRET_ACCESS_KEY}
+    command: server /data --console-address ":9001"
+    networks:
+      - url_shortener_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   init-cluster:
     build:
@@ -96,13 +135,16 @@ services:
         condition: service_healthy
       url-shortener-3:
         condition: service_healthy
-
+      minio:
+        condition: service_healthy
 
 volumes:
   url_shortener_1_data:
   url_shortener_2_data:
   url_shortener_3_data:
   shared_data:
+  minio_data:
+
 
 networks:
   url_shortener_network:

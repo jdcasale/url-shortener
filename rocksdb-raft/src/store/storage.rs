@@ -8,9 +8,12 @@ use rocksdb::Options;
 use rocksdb::DB;
 use serde::Deserialize;
 use serde::Serialize;
+use tide::log;
 use crate::network::callback_network_impl::Node;
 use crate::NodeId;
-use crate::store::chunk_storage::local::LocalChunkStore;
+use crate::store::chunk_storage::minio::{create_minio_s3_client, MinioChunkStore};
+use crate::store::chunk_storage::tigris::TigrisBlobStore;
+use crate::store::chunk_storage::store::{ChunkStore, ChunkStores};
 use crate::store::log_storage::LogStore;
 use crate::store::state_machine::StateMachineStore;
 
@@ -66,9 +69,15 @@ pub async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, StateMachineS
 
     let log_store = LogStore { db: db.clone() };
     // TODO(@jcasale): hard-coded path needs to be passed as config
-    let chunk_store = LocalChunkStore::new("/chunk_store/chunks".parse().unwrap());
+    // let chunk_store = TigrisBlobStore::new().await.unwrap();
+    // let chunk_store = LocalChunkStore::new("/chunk_store/chunks".parse().unwrap());
     // let chunk_store = LocalChunkStore::new("/tmp/chunk_store/chunks".parse().unwrap());
-    let sm_store = StateMachineStore::new(db, chunk_store).await.unwrap();
+    // let local_chunk_store = LocalChunkStore::new(chunk_dir);
+    let s3_client = create_minio_s3_client().await;
+    // log::info!("S3 endpoint configured: {:?}", s3_client.config().endpoint_resolver());
+
+    let chunk_store = MinioChunkStore::new(s3_client, "bruh");
+    let sm_store = StateMachineStore::new(db, ChunkStores::Minio(chunk_store)).await.unwrap();
 
     (log_store, sm_store)
 }

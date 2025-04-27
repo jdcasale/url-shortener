@@ -59,7 +59,7 @@ where
         election_timeout_max: 1500,
         max_payload_entries: 10,
         install_snapshot_timeout: 1000,
-        snapshot_policy: SnapshotPolicy::LogsSinceLast(100_000u64),
+        snapshot_policy: SnapshotPolicy::LogsSinceLast(25_000u64),
         ..Default::default()
     };
 

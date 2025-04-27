@@ -28,7 +28,7 @@ async fn hello() -> impl Responder {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let args = Args::parse();
-    tracing_subscriber::fmt().with_max_level(Level::WARN).init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     // Create your NoopRaftNetwork instance early on.
     let mut raft_network = rocksdb_raft::network::callback_network_impl::CallbackRaftNetwork::new();

@@ -2,16 +2,7 @@ use async_trait::async_trait;
 use std::path::PathBuf;
 use tokio::fs;
 use std::error::Error;
-
-/// Trait for storing and fetching chunks by their IDs.
-#[async_trait]
-pub trait ChunkStore {
-    /// Stores a chunk by its id.
-    async fn put_chunk(&self, chunk_id: &str, data: &[u8]) -> Result<(), Box<dyn Error + Send + Sync>>;
-
-    /// Retrieves a chunk by its id.
-    async fn get_chunk(&self, chunk_id: &str) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>>;
-}
+use crate::store::chunk_storage::store::ChunkStore;
 
 /// A test implementation of `ChunkStore` that writes chunks to a local directory.
 #[derive(Clone, Debug)]
@@ -45,6 +36,13 @@ impl ChunkStore for LocalChunkStore {
         // Read the file contents asynchronously.
         let data = fs::read(path).await?;
         Ok(data)
+    }
+
+    async fn delete_chunk(&self, chunk_id: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let mut path = self.directory.clone();
+        path.push(chunk_id);
+        fs::remove_file(path).await?;
+        Ok(())
     }
 }
 
