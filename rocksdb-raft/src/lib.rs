@@ -1,4 +1,3 @@
-#![feature(exact_size_is_empty)]
 #![allow(clippy::uninlined_format_args)]
 #![deny(unused_qualifications)]
 
