@@ -1291,9 +1291,6 @@ dependencies = [
 name = "blob-store"
 version = "0.1.0"
 dependencies = [
- "aws-config",
- "aws-sdk-s3",
- "tokio",
  "uuid",
 ]
 

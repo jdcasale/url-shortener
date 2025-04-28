@@ -5,7 +5,7 @@ use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::Client as S3Client;
 use std::error::Error;
 use std::sync::Arc;
-use tokio::sync::OnceCell;
+use aws_config::BehaviorVersion;
 
 /// A `ChunkStore` implementation that stores chunks in a MinIO server via S3 API.
 #[derive(Clone, Debug)]
@@ -18,15 +18,13 @@ pub struct MinioChunkStore {
 
 use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_s3::config::Builder;
-use aws_sdk_s3::config::http::HttpResponse;
-use aws_sdk_s3::operation::head_bucket::{HeadBucketError, HeadBucketOutput};
 use tide::log;
 
 /// Creates an S3 client that points at the local MinIO server.
 pub async fn create_minio_s3_client() -> S3Client {
     // Set up region (MinIO doesn’t care much but SDK requires it)
     let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
-    let base_config = aws_config::from_env().region(region_provider).load().await;
+    let base_config = aws_config::defaults(BehaviorVersion::latest()).region(region_provider).load().await;
 
     // Override the endpoint to point to MinIO
 
@@ -78,7 +76,7 @@ impl MinioChunkStore {
                     *ready = true;
                     Ok(())
                 } else {
-                    panic!("asdf")
+                    Err(SdkError::ServiceError(service_err).into())
                 }
             }
             Err(e) => {
