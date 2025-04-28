@@ -18,17 +18,34 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
     
-    - name: Cache cargo registry
-      uses: actions/cache@v4.2.3
+    - name: Install Rust (with cache)
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+        components: clippy
+
+    - name: Cache Cargo registry
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache Cargo build
+      uses: actions/cache@v4
+      with:
+        path: |
           target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-
+        key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Set up Docker cache
+      uses: satackey/action-docker-layer-caching@v0.0.11
+      continue-on-error: true
+
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --release
+
     - name: Run tests
       run: cargo test --verbose
