@@ -343,9 +343,7 @@ mod tests {
     use rocksdb::{ColumnFamilyDescriptor, Options, DB};
     use std::sync::Arc;
     use tempfile::tempdir;
-    use tide::log;
     use crate::store::chunk_storage::local::LocalChunkStore;
-    use crate::store::chunk_storage::minio::{create_minio_s3_client, MinioChunkStore};
     use crate::store::chunk_storage::store::ChunkStore;
 
     /// Sets up a temporary RocksDB instance and a LocalChunkStore.
@@ -368,12 +366,11 @@ mod tests {
         // Create a temporary directory for chunks.
         let chunk_dir = temp_dir.path().join("chunks");
         std::fs::create_dir_all(&chunk_dir).unwrap();
-        let s3_client = create_minio_s3_client();
 
-        let chunk_store = MinioChunkStore::new(s3_client, "bruh");
+        let chunk_store = LocalChunkStore::new(chunk_dir);
 
         // Create the StateMachineStore.
-        let store = StateMachineStore::new(db, ChunkStores::Minio(chunk_store)).await.unwrap();
+        let store = StateMachineStore::new(db, ChunkStores::Local(chunk_store)).await.unwrap();
         (store, temp_dir)
     }
 
