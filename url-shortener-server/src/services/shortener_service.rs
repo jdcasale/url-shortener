@@ -168,7 +168,7 @@ async fn forward_request_to_target(
 
 
 #[get("/lookup/{hash}")]
-async fn lookup_url<'a>(
+async fn lookup_url(
     from_path: web::Path<String>,
     shared_state: Data<AppStateWithCounter>
 ) -> impl Responder {

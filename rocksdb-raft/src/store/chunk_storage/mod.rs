@@ -1,2 +1,3 @@
-pub mod chunk_store;
 pub mod local;
+pub mod store;
+pub(crate) mod minio;

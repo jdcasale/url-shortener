@@ -9,7 +9,7 @@ use crate::errors::ShortenerErr;
 #[post("/raft/append_entries")]
 async fn append_entries(req: Json<AppendEntriesRequest<TypeConfig>>,
                         shared_state: web::Data<AppStateWithCounter>) -> impl Responder {
-    tracing::info!("Append Entries {:?}", req);
+    tracing::debug!("Append Entries {:?}", req);
     shared_state.raft.raft.append_entries(req.0)
         .await
         .map_err(ShortenerErr::Raft)

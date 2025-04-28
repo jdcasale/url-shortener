@@ -1,6 +1,5 @@
 use crate::network::callback_network_impl::{Node, NodeId};
 use crate::store::chunk_reference::{ChunkReference, SnapshotManifest};
-use crate::store::chunk_storage::local::{ChunkStore, LocalChunkStore};
 use crate::store::log_storage::StorageResult;
 use crate::store::storage::{RaftResponse, StoredSnapshot};
 use crate::store::types::{LongUrlEntry, TypeConfig};
@@ -12,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Cursor;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use crate::store::chunk_storage::store::ChunkStores;
 use crate::store::error_bullshit::CustomAnyError;
 
 // A helper function to compute a SHA-256 hash of the data.
@@ -39,7 +39,7 @@ pub struct StateMachineStore {
     db: Arc<DB>,
 
     /// A chunk store for offloading heavy state chunks (e.g. S3 or local directory).
-    chunk_store: LocalChunkStore,
+    chunk_store: ChunkStores,
 }
 
 /// Represents the current state of the state machine.
@@ -82,7 +82,7 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
             snapshot_id: chunk_id.clone(), // now a snapshot signature rather than an arbitrary String
         };
         // Upload the blob to the chunk store.
-        let result = self.chunk_store.put_chunk(&chunk_id, &kv_json).await;
+        let result = self.chunk_store.as_trait().put_chunk(&chunk_id, &kv_json).await;
         result
             .map_err(|e| StorageError::IO {
                 source: StorageIOError::write_snapshot(Some(meta.signature()), &CustomAnyError::from(e)),
@@ -142,7 +142,7 @@ impl StateMachineStore {
     /// Creates a new state machine store instance.
     pub async fn new(
         db: Arc<DB>,
-        chunk_store: LocalChunkStore,
+        chunk_store: ChunkStores,
     ) -> Result<StateMachineStore, StorageError<NodeId>> {
         let mut sm = Self {
             data: StateMachineData {
@@ -197,7 +197,8 @@ impl StateMachineStore {
         // The snapshot data now contains the serialized chunk ID.
         let chunk_id: String = chunk.id;
         // Retrieve the chunk from the chunk store.
-        let chunk_data = self.chunk_store.get_chunk(&chunk_id)
+        let chunk_store = self.chunk_store.as_trait();
+        let chunk_data = chunk_store.get_chunk(&chunk_id)
             .await
             .map_err(|e| StorageError::IO {
                 source: StorageIOError::read_snapshot(Some(signature.clone()), &CustomAnyError::from(e)),
@@ -342,6 +343,7 @@ mod tests {
     use rocksdb::{ColumnFamilyDescriptor, Options, DB};
     use std::sync::Arc;
     use tempfile::tempdir;
+    use crate::store::chunk_storage::local::LocalChunkStore;
 
     /// Sets up a temporary RocksDB instance and a LocalChunkStore.
     async fn setup_test_store() -> (StateMachineStore, tempfile::TempDir) {
@@ -363,10 +365,11 @@ mod tests {
         // Create a temporary directory for chunks.
         let chunk_dir = temp_dir.path().join("chunks");
         std::fs::create_dir_all(&chunk_dir).unwrap();
-        let local_chunk_store = LocalChunkStore::new(chunk_dir);
+
+        let chunk_store = LocalChunkStore::new(chunk_dir);
 
         // Create the StateMachineStore.
-        let store = StateMachineStore::new(db, local_chunk_store).await.unwrap();
+        let store = StateMachineStore::new(db, ChunkStores::Local(chunk_store)).await.unwrap();
         (store, temp_dir)
     }
 
@@ -399,7 +402,8 @@ mod tests {
         expected_map.insert("key2".to_string(), "value2".to_string());
         let expected_json = serde_json::to_vec(&expected_map).unwrap();
         let expected_chunk_id = compute_hash(&expected_json);
-        let stored_blob = store.chunk_store.get_chunk(&expected_chunk_id).await.unwrap();
+        
+        let stored_blob = store.chunk_store.as_trait().get_chunk(&expected_chunk_id).await.unwrap();
         assert_eq!(stored_blob, expected_json, "Chunk store does not contain the expected data");
 
         // The snapshot data is a manifest; deserialize it.
