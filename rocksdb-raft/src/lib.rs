@@ -80,7 +80,6 @@ where
     match initialize {
         Ok(_) => {tracing::info!("initialized new db")}
         Err(err) => {
-            println!("did not initialize new db: {err:?}");
             tracing::info!("did not initialize new db: {}", err)
         }
     }

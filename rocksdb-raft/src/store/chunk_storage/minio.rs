@@ -135,7 +135,6 @@ mod tests {
     use uuid::Uuid;
     use testcontainers::{ContainerAsync, GenericImage, ImageExt};
     use testcontainers::runners::{AsyncRunner};
-    use testcontainers::core::ContainerPort;
 
     async fn setup() -> (ContainerAsync<GenericImage>, u16) {
         unsafe {
@@ -150,9 +149,7 @@ mod tests {
             ))
             .with_cmd(vec!["minio", "server", "/data", "--console-address", ":9001"])
             .with_env_var("MINIO_ROOT_USER", "minioadmin")
-            .with_env_var("MINIO_ROOT_PASSWORD", "minioadmin")
-            .with_mapped_port(9000, ContainerPort::Tcp(9000))
-            .with_mapped_port(9001, ContainerPort::Tcp(9001));
+            .with_env_var("MINIO_ROOT_PASSWORD", "minioadmin");
 
         let minio = image.start().await.unwrap();
 
