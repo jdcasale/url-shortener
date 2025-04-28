@@ -3,15 +3,19 @@ use async_trait::async_trait;
 use crate::store::chunk_storage::local::LocalChunkStore;
 use crate::store::chunk_storage::minio::MinioChunkStore;
 
+
+pub type ChunkResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+
 /// Trait for storing and fetching chunks by their IDs.
 #[async_trait]
 pub trait ChunkStore {
     /// Stores a chunk by its id.
-    async fn put_chunk(&self, chunk_id: &str, data: &[u8]) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn put_chunk(&self, chunk_id: &str, data: &[u8]) -> ChunkResult<()>;
 
     /// Retrieves a chunk by its id.
-    async fn get_chunk(&self, chunk_id: &str) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>>;
-    async fn delete_chunk(&self, chunk_id: &str) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn get_chunk(&self, chunk_id: &str) -> ChunkResult<Vec<u8>>;
+
+    async fn delete_chunk(&self, chunk_id: &str) -> ChunkResult<()>;
 }
 
 

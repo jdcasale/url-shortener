@@ -1,4 +1,4 @@
-use crate::store::chunk_storage::store::ChunkStore;
+use crate::store::chunk_storage::store::{ChunkResult, ChunkStore};
 use async_trait::async_trait;
 use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::primitives::ByteStream;
@@ -18,7 +18,6 @@ pub struct MinioChunkStore {
 
 use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_s3::config::{Builder, Credentials};
-use tide::log;
 
 /// Creates an S3 client that points at the local MinIO server.
 pub async fn create_minio_s3_client(host: &str, port: u16, test: bool) -> S3Client {
@@ -28,6 +27,7 @@ pub async fn create_minio_s3_client(host: &str, port: u16, test: bool) -> S3Clie
     let mut builder = aws_config::defaults(BehaviorVersion::latest())
         .region(region_provider);
     if test {
+        // if we're running tests, just jam the defaults in
         let creds = Credentials::new("minioadmin", "minioadmin", None, None, "static");
         builder = builder.credentials_provider(creds)
     }
@@ -39,7 +39,6 @@ pub async fn create_minio_s3_client(host: &str, port: u16, test: bool) -> S3Clie
 
     // Build a custom config
     let config = Builder::from(&base_config)
-        // .endpoint_url("http://minio:9000")
         .endpoint_url(format!("http://{host}:{port}"))
         .force_path_style(true) // Important! MinIO requires path-style
         .build();
@@ -61,8 +60,7 @@ impl MinioChunkStore {
     }
 
     async fn ensure_bucket_exists(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let bucket = &self.bucket;
-        log::info!("Ensuring that bucket: {bucket} exists");
+        tracing::info!(bucket = %self.bucket, "Ensuring that bucket exists");
         let mut ready = self.bucket_ready.lock().await;
 
         if *ready {
@@ -72,40 +70,26 @@ impl MinioChunkStore {
 
         match self.s3_client.head_bucket().bucket(&self.bucket).send().await {
             Ok(_) => {
-                // Bucket exists
+                *ready = true; // <-- mark ready
+                Ok(())
+            },
+            Err(SdkError::ServiceError(ref service_err)) if service_err.err().is_not_found() => {
+                self.s3_client.create_bucket().bucket(&self.bucket).send().await?;
+                *ready = true;
                 Ok(())
             }
-            Err(SdkError::ServiceError(service_err)) => {
-                println!("error: {service_err:?}");
-                if service_err.err().is_not_found() {
-                    // Bucket does not exist, create it
-                    self.s3_client
-                        .create_bucket()
-                        .bucket(&self.bucket)
-                        .send()
-                        .await?;
-
-
-                    *ready = true;
-                    Ok(())
-                } else {
-                    Err(SdkError::ServiceError(service_err).into())
-                }
-            }
-            Err(e) => {
-                Err(e.into())
-            }
-        }
+            Err(e) => Err(e.into()),
         }
     }
+}
 
 
 
 #[async_trait]
 impl ChunkStore for MinioChunkStore {
-    async fn put_chunk(&self, chunk_id: &str, data: &[u8]) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn put_chunk(&self, chunk_id: &str, data: &[u8]) -> ChunkResult<()> {
         self.ensure_bucket_exists().await?;
-        log::info!("Uploading chunk {chunk_id}");
+        tracing::info!(chunk_id = %chunk_id, "Uploading chunk");
         self.s3_client
             .put_object()
             .bucket(&self.bucket)
@@ -116,9 +100,9 @@ impl ChunkStore for MinioChunkStore {
         Ok(())
     }
 
-    async fn get_chunk(&self, chunk_id: &str) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
+    async fn get_chunk(&self, chunk_id: &str) -> ChunkResult<Vec<u8>> {
         self.ensure_bucket_exists().await?;
-        log::info!("Getting chunk {chunk_id}");
+        tracing::info!(chunk_id = %chunk_id, "Getting chunk");
 
         let resp = self.s3_client
             .get_object()
@@ -130,9 +114,9 @@ impl ChunkStore for MinioChunkStore {
         Ok(data)
     }
 
-    async fn delete_chunk(&self, chunk_id: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn delete_chunk(&self, chunk_id: &str) -> ChunkResult<()> {
         self.ensure_bucket_exists().await?;
-        log::info!("Deleting chunk {chunk_id}");
+        tracing::info!(chunk_id = %chunk_id, "Deleting chunk");
         self.s3_client
             .delete_object()
             .bucket(&self.bucket)

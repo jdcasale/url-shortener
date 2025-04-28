@@ -72,7 +72,6 @@ pub async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, StateMachineS
     // let chunk_store = LocalChunkStore::new("/tmp/chunk_store/chunks".parse().unwrap());
     // let local_chunk_store = LocalChunkStore::new(chunk_dir);
     let s3_client = create_minio_s3_client("minio", 9000, false).await;
-    // log::info!("S3 endpoint configured: {:?}", s3_client.config().endpoint_resolver());
 
     let chunk_store = MinioChunkStore::new(s3_client, "bruh");
     let sm_store = StateMachineStore::new(db, ChunkStores::Minio(chunk_store)).await.unwrap();
