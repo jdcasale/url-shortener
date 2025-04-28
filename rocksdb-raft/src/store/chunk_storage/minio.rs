@@ -17,20 +17,30 @@ pub struct MinioChunkStore {
 
 
 use aws_config::meta::region::RegionProviderChain;
-use aws_sdk_s3::config::Builder;
+use aws_sdk_s3::config::{Builder, Credentials};
 use tide::log;
 
 /// Creates an S3 client that points at the local MinIO server.
-pub async fn create_minio_s3_client() -> S3Client {
+pub async fn create_minio_s3_client(host: &str, port: u16, test: bool) -> S3Client {
     // Set up region (MinIO doesn’t care much but SDK requires it)
     let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
-    let base_config = aws_config::defaults(BehaviorVersion::latest()).region(region_provider).load().await;
+
+    let mut builder = aws_config::defaults(BehaviorVersion::latest())
+        .region(region_provider);
+    if test {
+        let creds = Credentials::new("minioadmin", "minioadmin", None, None, "static");
+        builder = builder.credentials_provider(creds)
+    }
+    let base_config = builder
+        .load()
+        .await;
 
     // Override the endpoint to point to MinIO
 
     // Build a custom config
     let config = Builder::from(&base_config)
-        .endpoint_url("http://minio:9000")
+        // .endpoint_url("http://minio:9000")
+        .endpoint_url(format!("http://{host}:{port}"))
         .force_path_style(true) // Important! MinIO requires path-style
         .build();
 
@@ -51,6 +61,8 @@ impl MinioChunkStore {
     }
 
     async fn ensure_bucket_exists(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let bucket = &self.bucket;
+        log::info!("Ensuring that bucket: {bucket} exists");
         let mut ready = self.bucket_ready.lock().await;
 
         if *ready {
@@ -64,6 +76,7 @@ impl MinioChunkStore {
                 Ok(())
             }
             Err(SdkError::ServiceError(service_err)) => {
+                println!("error: {service_err:?}");
                 if service_err.err().is_not_found() {
                     // Bucket does not exist, create it
                     self.s3_client
@@ -91,9 +104,8 @@ impl MinioChunkStore {
 #[async_trait]
 impl ChunkStore for MinioChunkStore {
     async fn put_chunk(&self, chunk_id: &str, data: &[u8]) -> Result<(), Box<dyn Error + Send + Sync>> {
-        log::info!("ENSURING BUCKET");
         self.ensure_bucket_exists().await?;
-        log::info!("UPLOADING CHUNK");
+        log::info!("Uploading chunk {chunk_id}");
         self.s3_client
             .put_object()
             .bucket(&self.bucket)
@@ -105,9 +117,8 @@ impl ChunkStore for MinioChunkStore {
     }
 
     async fn get_chunk(&self, chunk_id: &str) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
-        log::info!("ENSURING BUCKET");
         self.ensure_bucket_exists().await?;
-        log::info!("GETTING CHUNK");
+        log::info!("Getting chunk {chunk_id}");
 
         let resp = self.s3_client
             .get_object()
@@ -121,6 +132,7 @@ impl ChunkStore for MinioChunkStore {
 
     async fn delete_chunk(&self, chunk_id: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.ensure_bucket_exists().await?;
+        log::info!("Deleting chunk {chunk_id}");
         self.s3_client
             .delete_object()
             .bucket(&self.bucket)
@@ -128,5 +140,85 @@ impl ChunkStore for MinioChunkStore {
             .send()
             .await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use tokio::runtime::Runtime;
+    use uuid::Uuid;
+    use testcontainers::{ContainerAsync, GenericImage, ImageExt};
+    use testcontainers::runners::{AsyncRunner};
+    use testcontainers::core::ContainerPort;
+
+    async fn setup() -> (ContainerAsync<GenericImage>, u16) {
+        unsafe {
+            env::set_var("AWS_ACCESS_KEY_ID", "min3ioadmin");
+            env::set_var("AWS_SECRET_ACCESS_KEY", "3minioadmin")
+        }
+
+        // Start MinIO
+        let image = GenericImage::new("minio/minio", "latest")
+            .with_wait_for(testcontainers::core::WaitFor::message_on_stderr(
+                "API:",
+            ))
+            .with_cmd(vec!["minio", "server", "/data", "--console-address", ":9001"])
+            .with_env_var("MINIO_ROOT_USER", "minioadmin")
+            .with_env_var("MINIO_ROOT_PASSWORD", "minioadmin")
+            .with_mapped_port(9000, ContainerPort::Tcp(9000))
+            .with_mapped_port(9001, ContainerPort::Tcp(9001));
+
+        let minio = image.start().await.unwrap();
+
+        let minio_port = minio.get_host_port_ipv4(9000).await.unwrap();
+
+        println!("MinIO accessible at http://localhost:{minio_port}");
+        (minio, minio_port)
+    }
+
+
+    #[test]
+    fn test_upload_chunk() {
+
+        let string = Uuid::new_v4().to_string();
+        let chunk_id = string.as_str();
+        let data = b"this is test data";
+
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async {
+            let (_minio, port) = setup().await;
+            let s3_client = create_minio_s3_client("localhost", port, true).await;
+            let uu = Uuid::new_v4().to_string();
+            let blob_store = MinioChunkStore::new(s3_client, format!("test-{uu}"));
+            blob_store.put_chunk(chunk_id, data).await.expect("upload failed");
+
+            let retrieved = blob_store.get_chunk(chunk_id).await.expect("download failed");
+            blob_store.delete_chunk(chunk_id).await.expect("deleted");
+            assert_eq!(retrieved, data);
+        });
+    }
+
+    #[test]
+    fn test_upload_chunk_overwrite() {
+        let string = Uuid::new_v4().to_string();
+        let chunk_id = string.as_str();
+        let data1 = b"data one";
+        let data2 = b"data two";
+
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async {
+            let (_minio, port) = setup().await;
+            let s3_client = create_minio_s3_client("localhost", port, true).await;
+            let uu = Uuid::new_v4().to_string();
+            let blob_store = MinioChunkStore::new(s3_client, format!("test-{uu}"));
+            blob_store.put_chunk(chunk_id, data1).await.expect("first upload failed");
+            blob_store.put_chunk(chunk_id, data2).await.expect("second upload failed");
+
+            let retrieved = blob_store.get_chunk(chunk_id).await.expect("download failed");
+            blob_store.delete_chunk(chunk_id).await.expect("deleted");
+            assert_eq!(retrieved, data2);
+        });
     }
 }

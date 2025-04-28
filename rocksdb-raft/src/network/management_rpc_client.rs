@@ -74,7 +74,7 @@ impl RaftManagementRPCClient {
             .map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
         let status = response.status();
         if !status.is_success() {
-            return Err(RPCError::Network(NetworkError::new(&std::io::Error::new(std::io::ErrorKind::Other, format!("HTTP error: {}", status)))));
+            return Err(RPCError::Network(NetworkError::new(&std::io::Error::other(format!("HTTP error: {}", status)))));
         }
 
         let response_text = response.text().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))?;

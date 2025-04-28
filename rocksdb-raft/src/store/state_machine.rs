@@ -344,7 +344,6 @@ mod tests {
     use std::sync::Arc;
     use tempfile::tempdir;
     use crate::store::chunk_storage::local::LocalChunkStore;
-    use crate::store::chunk_storage::store::ChunkStore;
 
     /// Sets up a temporary RocksDB instance and a LocalChunkStore.
     async fn setup_test_store() -> (StateMachineStore, tempfile::TempDir) {

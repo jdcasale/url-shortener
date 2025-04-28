@@ -218,7 +218,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
             for entry in &entries {
                 if entry.log_id.index != expected_index {
                     return Err(StorageError::IO {
-                        source: StorageIOError::write_logs(AnyError::error(&format!(
+                        source: StorageIOError::write_logs(AnyError::error(format!(
                             "Non-sequential log entries: expected index {}, got {}",
                             expected_index,
                             entry.log_id.index
